@@ -22,6 +22,9 @@ htmlcov/
 *.db
 *.sqlite3
 
+# Local Claude Code session/runtime state (lock files, scheduled-task state)
+.claude/
+
 # OS / editor
 .DS_Store
 *.swp

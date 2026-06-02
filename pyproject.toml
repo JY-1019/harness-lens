@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "harness-lens"
+version = "0.1.0"
+description = "Observe agentic coding harnesses (Claude Code, Codex CLI), reconstruct Flow/Task/Step trajectories, and evolve external scaffolding via AHE."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "harness-lens" }]
+dependencies = [
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+# Pillar 2/3 agents and the Layer-2 Judge call the Anthropic API.
+agents = ["anthropic>=0.39"]
+# The MCP server surface.
+mcp = ["mcp>=1.2"]
+all = ["anthropic>=0.39", "mcp>=1.2"]
+
+[project.scripts]
+harness-lens = "harness_lens.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["harness_lens"]
