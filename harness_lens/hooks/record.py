@@ -151,6 +151,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     if event not in EVENTS:
         # Unknown event: stay silent, never block the agent.
         return 0
+    if os.environ.get("HARNESS_LENS_DISABLE") == "1":
+        # We are inside a host-CLI call that harness-lens itself spawned (no-key LLM backend);
+        # recording this nested session would recurse, so observe nothing and exit clean.
+        return 0
     try:
         handle_event(event, _read_payload())
     except Exception as exc:  # noqa: BLE001 — observation must never raise into the agent

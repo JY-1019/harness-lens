@@ -38,9 +38,24 @@ uvx --from "harness-lens[all]" harness-lens install
 
 `install` auto-detects the harness, wires its hooks, and initialises the runtime
 at `~/.harness-lens/` (`ledger.db`, `criteria.yaml`, `components/`, `backups/`).
-The `[all]` extra pulls in `anthropic` (the Layer-2 Judge and the diagnose/evolve
-agents) and `mcp` (the server). Set `ANTHROPIC_API_KEY` to enable `diagnose`,
-`evolve`, and the Judge; observation (`show`, `status`) works without it.
+The `[all]` extra pulls in `anthropic` (a direct-API Judge / diagnose-evolve
+backend) and `mcp` (the server).
+
+### LLM backend — no API key required
+
+Observation (`show`, `status`, hook recording, Layer 1) needs no LLM at all. The
+LLM-backed features — `diagnose`, `evolve`, and the Layer-2 Judge — resolve a
+backend in this order:
+
+1. `HARNESS_LENS_LLM_BACKEND` (`api` \| `claude` \| `codex`) if set;
+2. `ANTHROPIC_API_KEY` → call the Anthropic API directly;
+3. otherwise → **delegate to the detected host CLI** (`claude -p` / `codex exec`),
+   reusing the host's existing login.
+
+So when harness-lens is attached to Claude Code or Codex, you can run
+`diagnose`/`evolve` **without setting `ANTHROPIC_API_KEY`** — the host performs
+the model call under its own credentials. (The nested host call runs with
+`HARNESS_LENS_DISABLE=1` so it isn't re-observed.)
 
 Force a platform when both are present:
 

@@ -198,7 +198,7 @@ def cmd_status(args) -> int:
     print(f"  Layer 3    : {s['layer3']}")
     print(f"  수정안      : {s['candidates']}")
     if not service.llm_available():
-        print("  (참고) ANTHROPIC_API_KEY 미설정 — diagnose/evolve 비활성")
+        print("  (참고) LLM 백엔드 없음 — ANTHROPIC_API_KEY 설정 또는 claude/codex CLI 로그인 필요 (diagnose/evolve 비활성)")
     return 0
 
 
