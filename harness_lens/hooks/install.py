@@ -12,6 +12,7 @@ open a Step, per §2/§16) and ``Stop`` (a Flow-end candidate).
 from __future__ import annotations
 
 import json
+import os
 import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,6 +26,16 @@ from ..store import SQLiteStore
 
 # How hooks/MCP invoke harness-lens. Overridable for local/dev installs.
 DEFAULT_LAUNCHER = ("uvx", "harness-lens")
+
+# What uvx resolves `--from`. Defaults to the published PyPI name; a local/dev install (the
+# package not yet on PyPI) sets HARNESS_LENS_UVX_FROM to a git spec like
+# "harness-lens[all] @ git+https://github.com/<owner>/harness-lens.git" so uvx builds from
+# source. Read at install time and baked into the static hook/MCP command strings.
+_DEFAULT_UVX_FROM = "harness-lens[all]"
+
+
+def _uvx_from_spec() -> str:
+    return os.environ.get("HARNESS_LENS_UVX_FROM", "").strip() or _DEFAULT_UVX_FROM
 
 # (settings.json event name, hook subcommand, timeout seconds)
 _HOOK_EVENTS = (
@@ -94,7 +105,7 @@ def _hook_command(subcommand: str, launcher=DEFAULT_LAUNCHER, env_prefix: str = 
     if command == "uvx":
         # uvx builds a fresh env per run; pull in [all] so the opt-in inline Judge mode
         # (HARNESS_LENS_JUDGE_IN_HOOK=1) has `anthropic` available, mirroring the MCP server.
-        parts = [command, "--from", "harness-lens[all]", "harness-lens", "hook", subcommand]
+        parts = [command, "--from", _uvx_from_spec(), "harness-lens", "hook", subcommand]
     else:
         parts = [*launcher, "hook", subcommand]
     # The command string is run by a shell; quote each part so e.g. the `[all]` extra is
@@ -134,7 +145,7 @@ def build_mcp_servers(launcher=DEFAULT_LAUNCHER) -> dict:
         # uvx installs an ephemeral env per run; pull in the [all] extra so the
         # server has both `mcp` (to serve) and `anthropic` (so run_diagnosis /
         # propose_evolution tools work), otherwise those tools fail at import.
-        args = ["--from", "harness-lens[all]", "harness-lens", "serve"]
+        args = ["--from", _uvx_from_spec(), "harness-lens", "serve"]
     else:
         args = [*rest, "serve"]
     return {"harness-lens": {"command": command, "args": args}}
