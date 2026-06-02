@@ -275,7 +275,9 @@ _CODEX_GAP_NOTICE = (
 
 def _codex_mcp_notice(launcher) -> str:
     command, *rest = launcher
-    serve = " ".join(build_mcp_servers(launcher)["harness-lens"]["args"])
+    # shlex.quote each arg: the uvx --from spec can contain spaces / `@` / `[all]`, so an
+    # unquoted join produces a `codex mcp add` line that the shell mis-splits and glob-expands.
+    serve = " ".join(shlex.quote(a) for a in build_mcp_servers(launcher)["harness-lens"]["args"])
     return (
         "MCP 서버는 자동 등록하지 않았습니다. 다음 중 하나로 등록하세요:\n"
         f"   codex mcp add harness-lens -- {command} {serve}\n"
