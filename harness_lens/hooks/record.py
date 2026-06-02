@@ -19,7 +19,8 @@ from typing import Optional
 
 from .. import home_dir
 from ..criteria import CriteriaEngine, ThreeLayerCriteria
-from ..reconstructor import Reconstructor
+from ..detector import detect
+from ..reconstructor import CodexReconstructor, Reconstructor
 from ..store import SQLiteStore
 
 EVENTS = ("session-start", "user-prompt", "pre-tool", "post-tool", "post-tool-failure", "stop", "session-end")
@@ -71,7 +72,21 @@ def _read_payload(stream=sys.stdin) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _build_reconstructor(judge_in_hook: bool) -> Reconstructor:
+def _reconstructor_class(platform: Optional[str]):
+    """Pick the reconstructor for the running harness.
+
+    The Codex install prefixes its hook commands with ``HARNESS_LENS_PLATFORM=codex`` so each
+    hook process knows which harness fired it without re-detecting; fall back to ``detect()``
+    when the env is unset (e.g. a manual invocation).
+    """
+    name = platform or os.environ.get("HARNESS_LENS_PLATFORM") or ""
+    if not name:
+        detected = detect()
+        name = detected.name if detected else ""
+    return CodexReconstructor if name == "codex" else Reconstructor
+
+
+def _build_reconstructor(judge_in_hook: bool, platform: Optional[str] = None) -> Reconstructor:
     store = SQLiteStore()
     criteria = ThreeLayerCriteria.load(home_dir() / "criteria.yaml")
     llm = None
@@ -80,13 +95,13 @@ def _build_reconstructor(judge_in_hook: bool) -> Reconstructor:
 
         llm = default_client()
     engine = CriteriaEngine(criteria, store, llm=llm)
-    return Reconstructor(store, engine)
+    return _reconstructor_class(platform)(store, engine)
 
 
 def handle_event(event: str, payload: dict, reconstructor: Optional[Reconstructor] = None) -> None:
     if reconstructor is None:
         judge_in_hook = os.environ.get("HARNESS_LENS_JUDGE_IN_HOOK", "") == "1"
-        reconstructor = _build_reconstructor(judge_in_hook)
+        reconstructor = _build_reconstructor(judge_in_hook, platform=payload.get("platform"))
 
     session_id = str(payload.get("session_id") or payload.get("sessionId") or "unknown")
     tool_name = str(payload.get("tool_name") or payload.get("toolName") or "")

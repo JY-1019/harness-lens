@@ -49,6 +49,7 @@ class Reconstructor:
         "WebSearch": "조사", "WebFetch": "조사",
     }
     DEFAULT_PLATFORM = "claude-code"
+    DEFAULT_CATEGORY = "기타"
 
     def __init__(self, store: StorageBackend, criteria_engine=None):
         self.store = store
@@ -57,7 +58,15 @@ class Reconstructor:
     def categorize(self, tool_name: str) -> str:
         if tool_name.startswith("mcp__"):
             return "외부도구"
-        return self.TOOL_CATEGORY.get(tool_name, "기타")
+        return self.TOOL_CATEGORY.get(tool_name, self.DEFAULT_CATEGORY)
+
+    def _observed(self, tool_name: str) -> bool:
+        """Whether a step for ``tool_name`` is fully observed (vs a gap).
+
+        Claude Code's PreToolUse intercepts every tool, so every step is observed. The
+        Codex subclass overrides this to flag tools its hooks cannot surface.
+        """
+        return True
 
     # -- Flow lifecycle -------------------------------------------------- #
     def on_session_start(self, session_id: str, platform: Optional[str] = None) -> Session:
@@ -131,6 +140,7 @@ class Reconstructor:
             tool_name=tool_name,
             input_summary=_truncate(input_summary),
             success=None,
+            observed=self._observed(tool_name),
             timestamp=time.time(),
         )
         self.store.add_step(step)
@@ -218,3 +228,57 @@ class Reconstructor:
     def _derive_status(self, session_id: str) -> str:
         steps = self.store.steps_for_session(session_id)
         return "failed" if any(s.success is False for s in steps) else "completed"
+
+
+class CodexReconstructor(Reconstructor):
+    """Codex CLI reconstruction (design Codex §1, §2, §9).
+
+    Codex differs from Claude Code in ways that change reconstruction:
+
+    * **No SessionEnd.** ``Stop`` is the only terminator, but it may be a pause rather than
+      a real end, so a ``UserPromptSubmit`` within :data:`STOP_REOPEN_WINDOW_SEC` resumes the
+      same Flow; a later prompt begins a fresh Flow in the same session.
+    * **PreToolUse only intercepts Bash / apply_patch / MCP.** Other tools (e.g. web search)
+      surface, if at all, only at PostToolUse. A step for an unrecognized tool is categorized
+      ``관측불가`` and flagged ``observed=False`` — the gap is recorded, never guessed.
+    * **Edits use ``apply_patch``** instead of Write/Edit.
+    """
+
+    TOOL_CATEGORY = {
+        "Bash": "실행",
+        "apply_patch": "반영",
+    }
+    DEFAULT_PLATFORM = "codex"
+    DEFAULT_CATEGORY = "관측불가"
+    STOP_REOPEN_WINDOW_SEC = 30
+
+    def _observed(self, tool_name: str) -> bool:
+        # Bash / apply_patch / mcp__* are reliably intercepted; anything falling through to
+        # the gap category was not properly observed.
+        return self.categorize(tool_name) != self.DEFAULT_CATEGORY
+
+    def on_user_prompt(self, session_id: str, prompt: str) -> None:
+        session = self._ensure_session(session_id)
+        cursor = self.store.get_cursor(session_id)
+        last_stop = cursor.get("last_stop_at")
+        fields = dict(
+            current_task_name=_truncate(prompt, 160),
+            pending_task=1,
+            last_stop_at=None,  # a new prompt cancels a pending Stop
+        )
+        beyond_window = last_stop is not None and (time.time() - last_stop) > self.STOP_REOPEN_WINDOW_SEC
+        if beyond_window:
+            # The prior Stop was a real Flow end. With no SessionEnd to delimit Flows, open a
+            # fresh Flow within the same session rather than reusing the closed one.
+            fields.update(
+                flow_id=new_id("flow"),
+                current_task_id=None,
+                current_category=None,
+                current_step_id=None,
+            )
+        # Resuming after a Stop: reactivate the session that on_stop tentatively finalized.
+        if session.status != "active":
+            session.status = "active"
+            session.ended_at = None
+            self.store.upsert_session(session)
+        self.store.set_cursor(session_id, **fields)

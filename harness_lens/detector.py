@@ -39,8 +39,27 @@ def _claude_code() -> Optional[Platform]:
     )
 
 
-# Ordered registry of detectors. Codex CLI support appends its own detector here.
-_DETECTORS = (_claude_code,)
+def _codex() -> Optional[Platform]:
+    home = Path.home()
+    codex_dir = home / ".codex"
+    has_dir = codex_dir.is_dir()
+    has_bin = shutil.which("codex") is not None
+    if not (has_dir or has_bin):
+        return None
+    proof = "~/.codex present" if has_dir else "codex binary on PATH"
+    return Platform(
+        name="codex",
+        label="Codex CLI",
+        # Codex loads hooks from ~/.codex/hooks.json (or an inline config.toml [hooks] table).
+        settings_path=codex_dir / "hooks.json",
+        instruction_file="AGENTS.md",
+        detected_by=proof,
+    )
+
+
+# Ordered registry of detectors. ``detect()`` with no name returns the first match, so
+# Claude Code stays first; Codex install/hook paths always pass an explicit platform name.
+_DETECTORS = (_claude_code, _codex)
 
 
 def detect_all() -> list[Platform]:

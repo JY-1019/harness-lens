@@ -29,7 +29,7 @@ from .experience import ExperienceCorpus
 from .hooks.install import loads_jsonc
 from .judge import JudgeMonitor, JudgeStatus
 from .llm import LLMClient, LLMUnavailable, default_client
-from .reconstructor import Reconstructor
+from .reconstructor import CodexReconstructor, Reconstructor
 from .store import EvolutionCandidate, JudgeSample, SQLiteStore, Step
 
 
@@ -66,7 +66,13 @@ class LensService:
 
     def _reconstructor(self, with_judge: bool = False) -> Reconstructor:
         llm = self._llm if with_judge else None
-        return Reconstructor(self.store, CriteriaEngine(self.criteria, self.store, llm=llm))
+        engine = CriteriaEngine(self.criteria, self.store, llm=llm)
+        # Codex differs from Claude Code in Flow/Step reconstruction (no SessionEnd, narrow
+        # PreToolUse interception → gaps), so pick the reconstructor by detected platform.
+        platform = detect()
+        if platform is not None and platform.name == "codex":
+            return CodexReconstructor(self.store, engine)
+        return Reconstructor(self.store, engine)
 
     # -- recording ------------------------------------------------------- #
     def record_step(
@@ -105,12 +111,15 @@ class LensService:
             })
             task["steps"].append(asdict(step))
         scored = [s.layer2_score for s in steps if s.layer2_score is not None]
+        gap_count = sum(1 for s in steps if s.observed is False)
         return {
             "session_id": session_id,
             "platform": session.platform if session else "",
             "status": session.status if session else "",
             "total_tokens": session.total_tokens if session else 0,
             "layer2_avg": (sum(scored) / len(scored)) if scored else None,
+            "gap_count": gap_count,
+            "gap_ratio": (gap_count / len(steps)) if steps else 0.0,
             "tasks": list(tasks.values()),
         }
 
@@ -125,6 +134,16 @@ class LensService:
         evolver = EvolveAgent(self._require_llm())
         proposals: list[dict] = []
         for diagnosis in agent.diagnose(self.experience):
+            # Codex misses some tools (gaps): when over half a pattern's evidence is
+            # unobserved, a prediction built on it is not trustworthy, so hold the
+            # proposal rather than evolve on incomplete evidence (Codex §11/§15).
+            gap = self.experience.pattern_gap_ratio(diagnosis.failure_pattern)
+            if gap > gap_threshold:
+                proposals.append({
+                    "failure_pattern": diagnosis.failure_pattern,
+                    "held": f"관측 부족으로 진화 보류 (gap={gap:.0%} > {gap_threshold:.0%})",
+                })
+                continue
             try:
                 candidate = evolver.propose(
                     diagnosis, current_content=self._current_component_content(diagnosis.affected_component)
@@ -405,7 +424,12 @@ class LensService:
             return None
         if component == "hooks":
             return platform.settings_path
-        if component == "CLAUDE.md":
+        # The agent-instruction file is platform-specific (CLAUDE.md vs AGENTS.md); both map
+        # to the detected platform's instruction file so a proposal targeting either lands on
+        # the right file and a Claude proposal can't overwrite a Codex AGENTS.md or vice versa.
+        if component in ("CLAUDE.md", "AGENTS.md"):
+            if component != platform.instruction_file:
+                return None
             return platform.settings_path.parent / platform.instruction_file
         return None
 
@@ -548,6 +572,7 @@ class LensService:
         return {
             "judge": self.get_judge_status(),
             "prediction_hit_rate": self.verifier.hit_rate(),
+            "gap_ratio": self.experience.overall_gap_ratio(),
             "layer3": self.criteria.qa.config.as_dict(),
             "candidates": {
                 "proposed": len(self.store.list_candidates(status="proposed")),

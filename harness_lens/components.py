@@ -25,7 +25,8 @@ from . import home_dir
 # detector.py or a skill file would not affect subsequent runs, so they are not offered
 # as evolution targets (they would otherwise yield proposals that cannot be applied).
 EDITABLE_COMPONENTS = frozenset({
-    "CLAUDE.md",
+    "CLAUDE.md",   # Claude Code agent-instruction file
+    "AGENTS.md",   # Codex CLI agent-instruction file
     "hooks",
     "qa.py",
 })

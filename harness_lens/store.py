@@ -61,6 +61,9 @@ class Step:
     retry_count: int = 0
     layer1_passed: Optional[bool] = None
     layer2_score: Optional[float] = None  # NULL = not evaluated
+    # False marks a "관측 불가" gap: a step the platform (notably Codex) could not surface
+    # through its hooks, so its evidence is incomplete. True for fully observed steps.
+    observed: bool = True
     timestamp: float = field(default_factory=time.time)
 
 
@@ -192,6 +195,7 @@ CREATE TABLE IF NOT EXISTS steps (
     retry_count   INTEGER NOT NULL DEFAULT 0,
     layer1_passed INTEGER,
     layer2_score  REAL,
+    observed      INTEGER NOT NULL DEFAULT 1,
     timestamp     REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_steps_session ON steps(session_id);
@@ -271,7 +275,19 @@ class SQLiteStore(StorageBackend):
 
     def init_schema(self) -> None:
         self._conn.executescript(_SCHEMA)
+        self._migrate()
         self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Additive migrations for ledgers created by an earlier build.
+
+        ``steps.observed`` was added for the Codex platform (gap tracking); a DB written by
+        the Claude-only build lacks the column, so add it with the observed default rather
+        than recreating the table.
+        """
+        cols = {row["name"] for row in self._conn.execute("PRAGMA table_info(steps)")}
+        if "observed" not in cols:
+            self._conn.execute("ALTER TABLE steps ADD COLUMN observed INTEGER NOT NULL DEFAULT 1")
 
     # -- sessions -------------------------------------------------------- #
     def upsert_session(self, session: Session) -> None:
@@ -315,12 +331,12 @@ class SQLiteStore(StorageBackend):
         self._conn.execute(
             """INSERT INTO steps(step_id, session_id, flow_id, task_id, task_category,
                    tool_name, input_summary, output_summary, success, latency_ms,
-                   retry_count, layer1_passed, layer2_score, timestamp)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   retry_count, layer1_passed, layer2_score, observed, timestamp)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (step.step_id, step.session_id, step.flow_id, step.task_id, step.task_category,
              step.tool_name, step.input_summary, step.output_summary,
              _int(step.success), step.latency_ms, step.retry_count,
-             _int(step.layer1_passed), step.layer2_score, step.timestamp),
+             _int(step.layer1_passed), step.layer2_score, _int(step.observed), step.timestamp),
         )
         self._conn.commit()
         return step
@@ -329,10 +345,10 @@ class SQLiteStore(StorageBackend):
         self._conn.execute(
             """UPDATE steps SET task_category=?, tool_name=?, input_summary=?,
                    output_summary=?, success=?, latency_ms=?, retry_count=?,
-                   layer1_passed=?, layer2_score=? WHERE step_id=?""",
+                   layer1_passed=?, layer2_score=?, observed=? WHERE step_id=?""",
             (step.task_category, step.tool_name, step.input_summary, step.output_summary,
              _int(step.success), step.latency_ms, step.retry_count,
-             _int(step.layer1_passed), step.layer2_score, step.step_id),
+             _int(step.layer1_passed), step.layer2_score, _int(step.observed), step.step_id),
         )
         self._conn.commit()
 
@@ -363,6 +379,7 @@ class SQLiteStore(StorageBackend):
             input_summary=row["input_summary"], output_summary=row["output_summary"],
             success=_b(row["success"]), latency_ms=row["latency_ms"], retry_count=row["retry_count"],
             layer1_passed=_b(row["layer1_passed"]), layer2_score=row["layer2_score"],
+            observed=_b(row["observed"]) if "observed" in row.keys() else True,
             timestamp=row["timestamp"],
         )
 

@@ -34,16 +34,21 @@ def _service() -> LensService:
 def _render_flow(flow: dict) -> str:
     mark = _STATUS_MARK.get(flow["status"], "?")
     l2 = f"{flow['layer2_avg']:.2f}" if flow["layer2_avg"] is not None else "n/a"
+    gap_count = flow.get("gap_count", 0)
+    gap = f"   |  gap: {flow.get('gap_ratio', 0.0):.0%} (관측 불가 {gap_count} step)" if gap_count else ""
     lines = [
         f"Flow {flow['session_id'][:8]}  [{flow['platform']}]  "
         f"tokens {flow['total_tokens']:,}  {mark}",
-        f"  Layer 2: {l2}",
+        f"  Layer 2: {l2}{gap}",
     ]
     for i, task in enumerate(flow["tasks"], 1):
         steps = task["steps"]
         retries = sum(s["retry_count"] for s in steps)
         fails = sum(1 for s in steps if s["success"] is False)
-        flag = "✅" if fails == 0 else "⚠"
+        unobserved = any(s.get("observed") is False for s in steps)
+        # A gap step has no observed outcome, so it is neither pass nor fail — mark it "?"
+        # rather than a misleading ✅ (design Codex §14).
+        flag = "⚠" if fails else ("?" if unobserved else "✅")
         extra = f"  (retry {retries})" if retries else ""
         lines.append(f"  Task {i} [{task['category']}]  {flag}  {len(steps)} steps{extra}")
     return "\n".join(lines)
@@ -189,6 +194,7 @@ def cmd_status(args) -> int:
     print("harness-lens status")
     print(f"  Judge      : {judge.recommendation}")
     print(f"  예측 적중률 : {f'{hit:.0%}' if hit is not None else 'n/a'}")
+    print(f"  gap 비율    : {s.get('gap_ratio', 0.0):.0%}")
     print(f"  Layer 3    : {s['layer3']}")
     print(f"  수정안      : {s['candidates']}")
     if not service.llm_available():
@@ -209,7 +215,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="harness-lens", description="Observe and evolve agentic harnesses.")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_install = sub.add_parser("install", help="wire into Claude Code + init runtime")
+    p_install = sub.add_parser("install", help="wire into Claude Code / Codex + init runtime")
     p_install.add_argument("--platform", default=None, help="force a platform id (default: auto-detect)")
     p_install.set_defaults(func=cmd_install)
 

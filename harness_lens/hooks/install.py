@@ -40,6 +40,19 @@ _HOOK_EVENTS = (
 )
 _MATCHED_EVENTS = {"PreToolUse", "PostToolUse", "PostToolUseFailure"}
 
+# Codex's hook surface (design Codex §1): no SessionEnd (Stop is the only terminator) and no
+# PostToolUseFailure; PreToolUse only intercepts Bash/apply_patch/MCP, the rest fall through to
+# PostToolUse or become gaps. Each Codex hook process is told its platform via an env prefix so
+# record.py selects CodexReconstructor without re-detecting.
+_CODEX_HOOK_EVENTS = (
+    ("SessionStart", "session-start", 5),
+    ("UserPromptSubmit", "user-prompt", 5),
+    ("PreToolUse", "pre-tool", 5),
+    ("PostToolUse", "post-tool", 5),
+    ("Stop", "stop", 10),
+)
+_CODEX_PLATFORM_ENV = "HARNESS_LENS_PLATFORM=codex"
+
 
 @dataclass
 class InstallReport:
@@ -50,6 +63,9 @@ class InstallReport:
     merged_hooks: list[str] = field(default_factory=list)
     mcp_registered: bool = False
     settings_backup: Optional[Path] = None
+    # Platform-specific advisories shown before the "다음 단계" footer — e.g. Codex's trust
+    # requirement and gap caveat, or manual MCP/config.toml steps install cannot do safely.
+    notices: list[str] = field(default_factory=list)
 
     def render(self) -> str:
         lines = [
@@ -64,6 +80,8 @@ class InstallReport:
         lines.append(f"   mcp     : {'registered' if self.mcp_registered else 'unchanged'}")
         if self.settings_backup:
             lines.append(f"   backup  : {self.settings_backup}")
+        for notice in self.notices:
+            lines += ["", notice]
         lines += [
             "",
             "다음 단계: harness-lens show / diagnose / evolve / verify / review",
@@ -71,7 +89,7 @@ class InstallReport:
         return "\n".join(lines)
 
 
-def _hook_command(subcommand: str, launcher=DEFAULT_LAUNCHER) -> str:
+def _hook_command(subcommand: str, launcher=DEFAULT_LAUNCHER, env_prefix: str = "") -> str:
     command, *rest = launcher
     if command == "uvx":
         # uvx builds a fresh env per run; pull in [all] so the opt-in inline Judge mode
@@ -81,7 +99,10 @@ def _hook_command(subcommand: str, launcher=DEFAULT_LAUNCHER) -> str:
         parts = [*launcher, "hook", subcommand]
     # The command string is run by a shell; quote each part so e.g. the `[all]` extra is
     # not glob-expanded (zsh treats `harness-lens[all]` as a character-class pattern).
-    return " ".join(shlex.quote(p) for p in parts)
+    command_str = " ".join(shlex.quote(p) for p in parts)
+    # An env prefix (e.g. HARNESS_LENS_PLATFORM=codex) is a literal `KEY=value` assignment the
+    # shell applies to the command; its value is a fixed token, so it needs no quoting.
+    return f"{env_prefix} {command_str}" if env_prefix else command_str
 
 
 def build_hooks(launcher=DEFAULT_LAUNCHER) -> dict:
@@ -91,6 +112,17 @@ def build_hooks(launcher=DEFAULT_LAUNCHER) -> dict:
         if event in _MATCHED_EVENTS:
             # Claude Code matchers are tool-name regex patterns; a bare "*" is not a
             # valid match-all and would silently capture nothing. ".*" matches all tools.
+            entry["matcher"] = ".*"
+        hooks[event] = [entry]
+    return hooks
+
+
+def build_codex_hooks(launcher=DEFAULT_LAUNCHER) -> dict:
+    hooks: dict = {}
+    for event, subcommand, timeout in _CODEX_HOOK_EVENTS:
+        command = _hook_command(subcommand, launcher, env_prefix=_CODEX_PLATFORM_ENV)
+        entry = {"hooks": [{"type": "command", "command": command, "timeout": timeout}]}
+        if event in _MATCHED_EVENTS:
             entry["matcher"] = ".*"
         hooks[event] = [entry]
     return hooks
@@ -154,6 +186,51 @@ def merge_settings(existing: dict, launcher=DEFAULT_LAUNCHER) -> tuple[dict, lis
     return merged, touched, mcp_registered
 
 
+def merge_codex_hooks(existing: dict, launcher=DEFAULT_LAUNCHER) -> tuple[dict, list[str]]:
+    """Merge harness-lens hook entries into a Codex ``hooks.json`` document.
+
+    Codex's hooks file holds only a ``hooks`` table (MCP lives in config.toml / ``codex mcp``),
+    so unlike Claude's settings merge there is no ``mcpServers`` step. Dedup is matcher+command
+    aware, identical to the Claude path, so reinstall is idempotent and never duplicates an entry.
+    """
+    merged = json.loads(json.dumps(existing)) if existing else {}
+    hooks = merged.setdefault("hooks", {})
+    touched: list[str] = []
+    for event, entries in build_codex_hooks(launcher).items():
+        bucket = hooks.setdefault(event, [])
+        existing_keys = {_entry_key(e) for e in bucket}
+        for entry in entries:
+            key = _entry_key(entry)
+            if key not in existing_keys:
+                bucket.append(entry)
+                existing_keys.add(key)
+                touched.append(event)
+    return merged, sorted(set(touched))
+
+
+def _config_toml_has_hooks(codex_dir: Path) -> bool:
+    """Whether ``~/.codex/config.toml`` already defines a ``[hooks]`` table.
+
+    Detected by a line-oriented scan (no tomllib: it is 3.11+ and we target 3.10+, and there is
+    no stdlib TOML *writer* to safely merge into anyway). When present, install leaves the TOML
+    untouched and tells the user to merge manually rather than risk corrupting their config.
+    """
+    config = codex_dir / "config.toml"
+    if not config.exists():
+        return False
+    try:
+        text = config.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if stripped == "[hooks]" or stripped.startswith("[hooks.") or stripped.startswith("[[hooks"):
+            return True
+    return False
+
+
 def init_runtime(root: Optional[Path] = None) -> list[str]:
     root = root or home_dir()
     created: list[str] = []
@@ -173,16 +250,41 @@ def init_runtime(root: Optional[Path] = None) -> list[str]:
     return created
 
 
+_CODEX_TRUST_NOTICE = (
+    "⚠ 중요: Codex 는 trusted 프로젝트에서만 hook 을 로드합니다.\n"
+    "   이 프로젝트를 trust 했는지 확인하세요.\n"
+    "   (전역 hook 은 ~/.codex/hooks.json 에 설정됨)"
+)
+_CODEX_GAP_NOTICE = (
+    "참고: Codex 는 일부 tool(웹 조사 등)을 hook 으로 잡지 못해\n"
+    "   trajectory 에 '관측 불가' 구간이 생길 수 있습니다.\n"
+    "   harness-lens status 에서 gap 비율을 확인하세요."
+)
+
+
+def _codex_mcp_notice(launcher) -> str:
+    command, *rest = launcher
+    serve = " ".join(build_mcp_servers(launcher)["harness-lens"]["args"])
+    return (
+        "MCP 서버는 자동 등록하지 않았습니다. 다음 중 하나로 등록하세요:\n"
+        f"   codex mcp add harness-lens -- {command} {serve}\n"
+        "   또는 ~/.codex/config.toml 의 [mcp_servers] 섹션에 직접 추가"
+    )
+
+
 def install(platform_name: Optional[str] = None, launcher=DEFAULT_LAUNCHER, root: Optional[Path] = None) -> InstallReport:
     platform = detect(platform_name)
     if platform is None:
         raise RuntimeError(
-            "지원되는 하네스를 찾지 못했습니다 (Claude Code 미설치). "
-            "Claude Code 설치 후 다시 실행하세요."
+            "지원되는 하네스를 찾지 못했습니다 (Claude Code / Codex 미설치). "
+            "Claude Code 또는 Codex 설치 후 다시 실행하세요."
         )
 
     root = root or home_dir()
     created = init_runtime(root)
+
+    if platform.name == "codex":
+        return _install_codex(platform, launcher, root, created)
 
     settings_path = platform.settings_path
     existing = _load_json(settings_path)
@@ -205,6 +307,49 @@ def install(platform_name: Optional[str] = None, launcher=DEFAULT_LAUNCHER, root
         merged_hooks=sorted(set(touched)),
         mcp_registered=mcp_registered,
         settings_backup=backup_path,
+    )
+
+
+def _install_codex(platform: Platform, launcher, root: Path, created: list[str]) -> InstallReport:
+    """Codex install path: merge hooks into ~/.codex/hooks.json, never auto-edit config.toml.
+
+    Codex differs from Claude (design Codex §1/§13): hooks live in their own ``hooks.json`` (or
+    an inline config.toml ``[hooks]`` table), MCP is registered separately, and project-local
+    hooks only load in *trusted* projects — so the report must carry the trust + gap notices.
+    """
+    hooks_path = platform.settings_path  # ~/.codex/hooks.json
+    existing = _load_json(hooks_path)
+    merged, touched = merge_codex_hooks(existing, launcher)
+
+    backup_path = None
+    if hooks_path.exists():
+        manager = ComponentManager(root)
+        edit = manager.apply("hooks", hooks_path, json.dumps(merged, indent=2, ensure_ascii=False) + "\n")
+        backup_path = edit.backup_path
+    else:
+        hooks_path.parent.mkdir(parents=True, exist_ok=True)
+        hooks_path.write_text(json.dumps(merged, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    notices = [_CODEX_TRUST_NOTICE, _CODEX_GAP_NOTICE, _codex_mcp_notice(launcher)]
+    if _config_toml_has_hooks(hooks_path.parent):
+        # We wrote hooks.json, but the user's config.toml also defines [hooks]. We cannot safely
+        # rewrite TOML (no stdlib writer on 3.10+), and which source Codex prefers is ambiguous,
+        # so warn them to merge manually rather than leave a silently-shadowed hooks.json.
+        notices.insert(0, (
+            "⚠ ~/.codex/config.toml 에 이미 [hooks] 가 있습니다.\n"
+            "   hooks.json 을 작성했지만, config.toml 의 [hooks] 가 우선할 수 있습니다.\n"
+            "   위 hook 항목을 config.toml 에 직접 병합하거나 [hooks] 를 제거하세요."
+        ))
+
+    return InstallReport(
+        platform=platform.label,
+        settings_path=hooks_path,
+        runtime_dir=root,
+        created_runtime=created,
+        merged_hooks=touched,
+        mcp_registered=False,
+        settings_backup=backup_path,
+        notices=notices,
     )
 
 

@@ -22,6 +22,9 @@ _SYSTEM = (
     f"{sorted(EDITABLE_COMPONENTS)}. "
     "If the real cause is the agent's internal prompt/tools/middleware (black box), "
     'set affected_component to "" and needs_human_review to true. '
+    "Some evidence may be marked '관측 불가' (gap) — these are steps the platform could not "
+    "observe. Treat such trajectories as INCOMPLETE: do not infer a cause from unobserved "
+    "gaps. If a pattern's evidence is mostly gaps, set needs_human_review to true. "
     'Answer ONLY with JSON: '
     '{"diagnosis": "<short>", "affected_component": "<one of the list or empty>", '
     '"needs_human_review": true|false}'
