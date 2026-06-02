@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+*.egg
+.venv/
+venv/
+env/
+
+# Tooling
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# harness-lens runtime data
+.harness-lens/
+*.db
+*.sqlite3
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
