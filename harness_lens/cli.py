@@ -1,6 +1,7 @@
 """Command-line interface.
 
     harness-lens install        wire into Claude Code + init runtime
+    harness-lens harness        inspect the harness applied to a project
     harness-lens show [--fail]  recent Flows (with Layer 2)
     harness-lens diagnose       Pillar 2 — Debugger agent
     harness-lens evolve         Pillar 3 — proposals (+ --apply ID --yes)
@@ -72,6 +73,24 @@ def cmd_show(args) -> int:
         print("기록된 Flow가 없습니다. Claude Code에서 작업하면 자동 추적됩니다.")
         return 0
     print("\n\n".join(_render_flow(f) for f in flows))
+    return 0
+
+
+def cmd_harness(args) -> int:
+    from pathlib import Path
+
+    from .harness import LensUnsupportedPlatform
+
+    service = _service()
+    try:
+        report = service.inspect_project_harness(
+            Path(args.project) if args.project else None,
+            platform_name=args.platform,
+        )
+    except LensUnsupportedPlatform as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(report.render())
     return 0
 
 
@@ -223,6 +242,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_show.add_argument("--fail", action="store_true", help="only failed Flows")
     p_show.add_argument("--limit", type=int, default=20)
     p_show.set_defaults(func=cmd_show)
+
+    p_harness = sub.add_parser("harness", help="inspect the harness applied to a project")
+    p_harness.add_argument("--project", default=None, help="project root (default: cwd)")
+    p_harness.add_argument("--platform", default=None, help="force a platform id (default: auto-detect)")
+    p_harness.set_defaults(func=cmd_harness)
 
     sub.add_parser("diagnose", help="Pillar 2 diagnosis").set_defaults(func=cmd_diagnose)
 

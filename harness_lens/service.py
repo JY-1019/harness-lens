@@ -123,6 +123,104 @@ class LensService:
             "tasks": list(tasks.values()),
         }
 
+    # -- project harness inspection (design §0) -------------------------- #
+    def inspect_project_harness(
+        self, project_root: Optional[Path] = None, platform_name: Optional[str] = None
+    ):
+        """Abstract the harness applied to ``project_root`` into the AHE view.
+
+        Returns a :class:`~harness_lens.harness.ProjectHarnessReport`. Raises
+        ``LensUnsupportedPlatform`` when the requested (or detected) harness is
+        absent, since the component paths (instruction file, hooks, skills) are
+        platform-specific. ``platform_name`` forces a platform when both Claude
+        Code and Codex are installed (``detect()`` otherwise returns the first).
+        """
+        from .harness import LensUnsupportedPlatform, inspect_project
+
+        root = Path(project_root) if project_root else Path.cwd()
+        platform = self._resolve_inspection_platform(root, platform_name)
+        # AHE applies hook/instruction proposals through _live_target -> detect() (no name),
+        # which resolves to the first registered installed platform. A component is only
+        # truly AHE-editable when the inspected platform is that same evolution target;
+        # otherwise the report would point edits at the wrong platform's files.
+        live = detect()
+        return inspect_project(
+            root, platform, self.criteria,
+            evolution_platform_name=live.name if live else None,
+        )
+
+    @staticmethod
+    def _has_project_signal(project_root: Path, platform) -> bool:
+        """Whether ``project_root`` carries this platform's project-local harness files.
+
+        Requires a *concrete* harness file, not just the config directory: an empty
+        ``.claude``/``.codex`` (e.g. an ignored runtime dir) is not evidence the project
+        runs under that platform and must not force or muddy platform selection.
+        """
+        if (project_root / platform.instruction_file).exists():
+            return True
+        config_dir = project_root / platform.settings_path.parent.name
+        if not config_dir.is_dir():
+            return False
+        from .hooks.install import _config_toml_has_hooks
+
+        hook_files = [platform.settings_path.name]
+        if platform.name == "claude-code":
+            hook_files.append("settings.local.json")
+        if any((config_dir / f).exists() for f in hook_files):
+            return True
+        # Codex config.toml is only a harness signal when it actually defines [hooks];
+        # a config.toml with just MCP/model/trust settings is not harness scaffolding.
+        if platform.name == "codex" and _config_toml_has_hooks(config_dir):
+            return True
+        for sub in ("skills", "commands"):
+            subdir = config_dir / sub
+            if subdir.is_dir() and any(subdir.iterdir()):
+                return True
+        return False
+
+    def _resolve_inspection_platform(self, project_root: Path, platform_name: Optional[str]):
+        """Pick the platform whose harness this project actually runs under.
+
+        An explicit ``platform_name`` always wins. Otherwise, when both Claude Code
+        and Codex are installed, ``detect()``'s registry order would always pick
+        Claude Code even for a Codex-only project — so disambiguate by the project's
+        own harness files (CLAUDE.md/.claude vs AGENTS.md/.codex). If exactly one
+        platform has project-local files, use it. Otherwise (no project files, or
+        several platforms' files present) the target is genuinely ambiguous — a
+        project may run purely off global ~/.codex or ~/.claude scaffolding — so we
+        ask for an explicit ``--platform`` rather than silently guessing by registry
+        order and reporting the wrong harness.
+        """
+        from .detector import detect_all
+
+        from .harness import LensUnsupportedPlatform
+
+        platforms = detect_all()
+        if platform_name is not None:
+            chosen = next((p for p in platforms if p.name == platform_name), None)
+            if chosen is None:
+                raise LensUnsupportedPlatform(
+                    f"지원되는 하네스를 찾지 못했습니다 ({platform_name}) (Claude Code / Codex 미설치)."
+                )
+            return chosen
+        if not platforms:
+            raise LensUnsupportedPlatform(
+                "지원되는 하네스를 찾지 못했습니다 (Claude Code / Codex 미설치)."
+            )
+        if len(platforms) == 1:
+            return platforms[0]
+        signaled = [p for p in platforms if self._has_project_signal(project_root, p)]
+        if len(signaled) == 1:
+            return signaled[0]
+        # 0 signals (project may run off global scaffolding only) or several signals:
+        # ambiguous which harness applies, so refuse to guess by registry order.
+        names = ", ".join(p.name for p in (signaled or platforms))
+        raise LensUnsupportedPlatform(
+            f"여러 하네스가 설치되어 있어 이 프로젝트의 대상을 확정할 수 없습니다 ({names}). "
+            "--platform 으로 명시하세요."
+        )
+
     # -- Pillar 2 -------------------------------------------------------- #
     def run_diagnosis(self) -> list[dict]:
         agent = DebuggerAgent(self._require_llm())

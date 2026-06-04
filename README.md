@@ -106,6 +106,7 @@ harness-lens show         # Flow/Task[category]/Step + gap ratio
 | Command | Purpose |
 | --- | --- |
 | `harness-lens install [--platform NAME]` | wire hooks + MCP, init runtime |
+| `harness-lens harness [--project DIR]` | inspect the harness applied to a project (components + Flow/Task/Step + 3-Layer) |
 | `harness-lens show [--fail] [--limit N]` | recent Flows (Layer-2 + gap ratio) |
 | `harness-lens diagnose` | Pillar 2 — Debugger agent (needs API key) |
 | `harness-lens evolve [--apply ID --yes]` | Pillar 3 — proposals; apply a candidate |
