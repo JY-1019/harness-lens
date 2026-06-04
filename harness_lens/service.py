@@ -112,12 +112,20 @@ class LensService:
             task["steps"].append(asdict(step))
         scored = [s.layer2_score for s in steps if s.layer2_score is not None]
         gap_count = sum(1 for s in steps if s.observed is False)
+        # Per-flow 3-Layer monitoring (design §3): Layer 1 surfaces deterministic invariant
+        # failures; Layer 3 reuses the QA criteria's own pattern detection (effective overrides,
+        # latency_multiplier, quality_threshold, per-(tool, category) failure/retry counts) so the
+        # flow's reported status matches what actually trips evolution — not a parallel heuristic.
+        layer1_failed = sum(1 for s in steps if s.layer1_passed is False)
+        layer3_triggers = [p["pattern_id"] for p in self.criteria.qa.find_failure_patterns(steps)]
         return {
             "session_id": session_id,
             "platform": session.platform if session else "",
             "status": session.status if session else "",
             "total_tokens": session.total_tokens if session else 0,
+            "layer1_failed": layer1_failed,
             "layer2_avg": (sum(scored) / len(scored)) if scored else None,
+            "layer3_triggers": layer3_triggers,
             "gap_count": gap_count,
             "gap_ratio": (gap_count / len(steps)) if steps else 0.0,
             "tasks": list(tasks.values()),
@@ -155,6 +163,63 @@ class LensService:
             root, platform, self.criteria,
             evolution_platform_name=live.name if live else None,
         )
+
+    # -- 3-Layer enforcement + view (design §3) -------------------------- #
+    def enforce_criteria(self, platform_name: Optional[str] = None) -> Optional[Path]:
+        """Write the 3-Layer criteria into the agent-instruction file so the harness follows them.
+
+        The instruction file (CLAUDE.md / AGENTS.md) is the AHE-controllable analogue of the
+        agent's system prompt, so the layers are rendered there as a managed block. Returns the
+        target path (whether or not the block changed), or ``None`` when no platform is detected.
+        Raises :class:`CriteriaViolation` if the instruction file is not an editable component.
+        """
+        from . import enforce as enforce_mod
+
+        platform = detect(platform_name)
+        if platform is None:
+            return None
+        # Reject up front with a clear CriteriaViolation if the instruction file is somehow not an
+        # editable component; ComponentManager.apply would otherwise raise the lower-level error.
+        self.criteria.guard.assert_external_component(platform.instruction_file, EDITABLE_COMPONENTS)
+        target, _changed = enforce_mod.apply_to_instruction(self.criteria, platform, self.components)
+        return target
+
+    def _resync_instruction_block(self, *, force_component: Optional[str] = None) -> None:
+        """Re-derive the managed instruction block from the current criteria, on every platform.
+
+        The block embeds the Layer-3 thresholds, so it is a *derived view* of criteria.yaml.
+        ``criteria.yaml`` is shared across installed platforms, so a Layer-3 apply (or its
+        rollback) must refresh the block on *every* platform whose instruction file already
+        carries one — refreshing only the registry-first/env-pinned platform would leave the
+        other agent following thresholds QA/evolution no longer use. ``force_component`` also
+        refreshes the platform owning that instruction file even when its block was just wiped by
+        an instruction-file rollback (the restored backup may carry a stale block or none).
+        Best-effort — a missing platform or write failure must not undo the change that triggered
+        the resync.
+        """
+        from . import enforce as enforce_mod
+        from .detector import detect_all
+
+        for platform in detect_all():
+            try:
+                target = enforce_mod.instruction_target(platform)
+                has_block = target.exists() and enforce_mod.MARKER_START in target.read_text(encoding="utf-8")
+                if not has_block and platform.instruction_file != force_component:
+                    continue
+                self.enforce_criteria(platform_name=platform.name)
+            except Exception:
+                continue
+
+    def layers_view(self) -> dict:
+        """The 3-Layer criteria currently enforced, as plain data for display."""
+        return {
+            "invariants": list(self.criteria.invariants),
+            "domain_criteria": [
+                {"id": dc.id, "description": dc.description, "weight": dc.weight}
+                for dc in self.criteria.domain_criteria
+            ],
+            "layer3": self.criteria.qa.config.as_dict(),
+        }
 
     @staticmethod
     def _has_project_signal(project_root: Path, platform) -> bool:
@@ -318,6 +383,16 @@ class LensService:
                 # settings.json is structured and shared; merge the proposal into the
                 # existing config instead of overwriting the whole file with a snippet.
                 return self._apply_hooks_change(target, content)
+            if candidate.target_component in ("CLAUDE.md", "AGENTS.md"):
+                # Re-assert the non-evolvable 3-Layer block after the evolved instructions land,
+                # so a Layer-3 (or any) instruction-file proposal can never drop or mutate the
+                # managed Layer 1/2 criteria. strip_block first guards against a stale/partial
+                # block the LLM may have echoed back.
+                from . import enforce as enforce_mod
+
+                content = enforce_mod.merge_block(
+                    enforce_mod.strip_block(content), enforce_mod.render_block(self.criteria)
+                )
             return self.components.apply(candidate.target_component, target, content)
         raise ComponentError(
             "proposed_change has no applicable payload (expected 'params' or 'path'+'content')"
@@ -450,6 +525,13 @@ class LensService:
         # `evolve` never leaks local credentials for a hook-related diagnosis.
         if component == "hooks":
             return self._redact_settings(text)
+        # The instruction file carries the managed 3-Layer block (Layer 1/2 are non-evolvable).
+        # Hide it from the evolver so a proposal only ever rewrites the user's own instructions;
+        # the canonical block is re-applied in _apply_change after the evolved content lands.
+        if component in ("CLAUDE.md", "AGENTS.md"):
+            from . import enforce as enforce_mod
+
+            return enforce_mod.strip_block(text)
         return text
 
     _SENSITIVE_KEY_HINTS = ("token", "secret", "password", "passwd", "apikey", "api_key",
@@ -569,6 +651,7 @@ class LensService:
         new_yaml = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
         edit = self.components.apply("qa.py", self.criteria_path, new_yaml)
         self._reload_criteria()  # reload with new params
+        self._resync_instruction_block()
         return edit
 
     def verify_predictions(self) -> list[VerifyResult]:
@@ -654,6 +737,14 @@ class LensService:
                 self.store.update_candidate(other)
             if target == self.criteria_path:
                 self._reload_criteria()
+                self._resync_instruction_block()
+            elif candidate.target_component in ("CLAUDE.md", "AGENTS.md") and target.exists():
+                # The restored backup may carry a stale managed block (or none) if criteria
+                # changed after it was taken; re-merge the current block so the agent's
+                # instructions still mirror the live criteria after an instruction rollback.
+                # Guarded by ``target.exists()``: if the rollback *deleted* a file the evolution
+                # had created from scratch, leave it absent — don't resurrect it with a lone block.
+                self._resync_instruction_block(force_component=candidate.target_component)
         candidate.status = "rolled_back"
         self.store.update_candidate(candidate)
 
@@ -678,6 +769,10 @@ class LensService:
             "judge": self.get_judge_status(),
             "prediction_hit_rate": self.verifier.hit_rate(),
             "gap_ratio": self.experience.overall_gap_ratio(),
+            "layer1": list(self.criteria.invariants),
+            "layer2": [
+                {"id": dc.id, "description": dc.description} for dc in self.criteria.domain_criteria
+            ],
             "layer3": self.criteria.qa.config.as_dict(),
             "candidates": {
                 "proposed": len(self.store.list_candidates(status="proposed")),

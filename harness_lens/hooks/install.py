@@ -18,9 +18,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from .. import enforce as enforce_mod
 from .. import home_dir
 from ..components import ComponentManager
-from ..criteria import DEFAULT_CRITERIA_YAML
+from ..criteria import DEFAULT_CRITERIA_YAML, ThreeLayerCriteria
 from ..detector import Platform, detect
 from ..skill import install_skill
 from ..store import SQLiteStore
@@ -92,6 +93,8 @@ class InstallReport:
     settings_backup: Optional[Path] = None
     # Where the SKILL wrapper was written (so harness-lens is invocable as a skill, not only CLI).
     skill_path: Optional[Path] = None
+    # Where the 3-Layer criteria were enforced (the agent-instruction file ≈ system prompt).
+    enforced_path: Optional[Path] = None
     # Platform-specific advisories shown before the "다음 단계" footer — e.g. Codex's trust
     # requirement and gap caveat, or manual MCP/config.toml steps install cannot do safely.
     notices: list[str] = field(default_factory=list)
@@ -109,6 +112,8 @@ class InstallReport:
         lines.append(f"   mcp     : {'registered' if self.mcp_registered else 'unchanged'}")
         if self.skill_path:
             lines.append(f"   skill   : {self.skill_path}")
+        if self.enforced_path:
+            lines.append(f"   3-layer : {self.enforced_path}")
         if self.settings_backup:
             lines.append(f"   backup  : {self.settings_backup}")
         for notice in self.notices:
@@ -281,6 +286,13 @@ def init_runtime(root: Optional[Path] = None) -> list[str]:
     return created
 
 
+def _enforce_three_layer(platform: Platform, root: Path) -> Path:
+    """Render the 3-Layer criteria into the agent-instruction file so the harness follows them."""
+    criteria = ThreeLayerCriteria.load(root / "criteria.yaml")
+    target, _changed = enforce_mod.apply_to_instruction(criteria, platform, ComponentManager(root))
+    return target
+
+
 _CODEX_TRUST_NOTICE = (
     "⚠ 중요: Codex 는 trusted 프로젝트에서만 hook 을 로드합니다.\n"
     "   이 프로젝트를 trust 했는지 확인하세요.\n"
@@ -333,6 +345,7 @@ def install(platform_name: Optional[str] = None, launcher=DEFAULT_LAUNCHER, root
         settings_path.write_text(json.dumps(merged, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     skill_file, _ = install_skill(platform, invoke=_cli_invocation(launcher))
+    enforced = _enforce_three_layer(platform, root)
 
     return InstallReport(
         platform=platform.label,
@@ -343,6 +356,7 @@ def install(platform_name: Optional[str] = None, launcher=DEFAULT_LAUNCHER, root
         mcp_registered=mcp_registered,
         settings_backup=backup_path,
         skill_path=skill_file,
+        enforced_path=enforced,
     )
 
 
@@ -367,6 +381,7 @@ def _install_codex(platform: Platform, launcher, root: Path, created: list[str])
         hooks_path.write_text(json.dumps(merged, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     skill_file, _ = install_skill(platform, invoke=_cli_invocation(launcher))
+    enforced = _enforce_three_layer(platform, root)
 
     notices = [_CODEX_TRUST_NOTICE, _CODEX_GAP_NOTICE, _codex_mcp_notice(launcher)]
     if _config_toml_has_hooks(hooks_path.parent):
@@ -388,6 +403,7 @@ def _install_codex(platform: Platform, launcher, root: Path, created: list[str])
         mcp_registered=False,
         settings_backup=backup_path,
         skill_path=skill_file,
+        enforced_path=enforced,
         notices=notices,
     )
 

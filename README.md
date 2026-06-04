@@ -27,6 +27,22 @@ The agent's internal prompt/tools/middleware are **never** modification targets.
 3. **Decision** — every change ships with a falsifiable prediction, verified the
    next round; a miss auto-rolls-back.
 
+## Three-Layer criteria — enforced and monitored
+
+The harness is managed as three layers (see `criteria.yaml`):
+
+- **Layer 1 — Invariants**: absolute rules, never AHE-editable.
+- **Layer 2 — Domain criteria**: behavioural rules scored by an LLM Judge.
+- **Layer 3 — QA thresholds**: the only AHE-evolvable layer (retries, latency, …).
+
+`install` (or `harness-lens enforce`) renders these layers into the agent
+instruction file (`CLAUDE.md` / `AGENTS.md`) as a managed block — the closest
+AHE-controllable analogue of the agent's system prompt — so Claude Code / Codex
+operate under them. The block sits between markers, so re-enforcement refreshes
+only the managed region and leaves your own instructions intact. View the layers
+with `harness-lens layers`; `show` annotates each Flow with its Layer 1/2/3
+status, and `status` summarises the layers currently in force.
+
 ## Install
 
 `harness-lens` is a Python package (3.10+). The hooks and MCP server run it via
@@ -120,7 +136,9 @@ harness-lens show         # Flow/Task[category]/Step + gap ratio
 | `harness-lens install [--platform NAME]` | wire hooks + MCP, init runtime (also drops the SKILL wrapper) |
 | `harness-lens skill [--platform NAME] [--print]` | (re)install the SKILL wrapper for the host harness, or print it |
 | `harness-lens harness [--project DIR]` | inspect the harness applied to a project (components + Flow/Task/Step + 3-Layer) |
-| `harness-lens show [--fail] [--limit N]` | recent Flows (Layer-2 + gap ratio) |
+| `harness-lens enforce [--platform NAME]` | write the 3-Layer criteria into the instruction file (≈ system prompt) |
+| `harness-lens layers` | show the 3-Layer criteria currently enforced |
+| `harness-lens show [--fail] [--limit N]` | recent Flows (per-flow Layer 1/2/3 + gap ratio) |
 | `harness-lens diagnose` | Pillar 2 — Debugger agent (needs API key) |
 | `harness-lens evolve [--apply ID --yes]` | Pillar 3 — proposals; apply a candidate |
 | `harness-lens verify` | verify predictions → confirm / roll back |
