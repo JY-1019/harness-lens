@@ -146,6 +146,28 @@ harness-lens show         # Flow/Task[category]/Step + gap ratio
 | `harness-lens rollback` | revert the last applied change |
 | `harness-lens status` | 3-Layer + hit-rate + Judge + gap ratio |
 | `harness-lens serve` | run the MCP server (used by the harness) |
+| `harness-lens gui [--port N] [--no-browser]` | launch the local web GUI to monitor + edit the 3-Layer harness |
 
 Gap-dominated patterns (over 50% unobserved, i.e. mostly Codex gaps) are held
 back from evolution — a prediction built on missing evidence isn't trustworthy.
+
+## Web GUI
+
+`harness-lens gui` launches a localhost-only dashboard (Python stdlib, no extra
+deps) that renders the same Flow/Task/Step trajectory and 3-Layer view as the
+CLI, and lets you edit the one AHE-evolvable layer from the browser:
+
+- **Monitor** — recent Flows with per-flow Layer 1/2/3 status and gap ratio.
+- **Status** — Judge recommendation, prediction hit-rate, candidate counts.
+- **Edit** — Layer 1 (invariants) and Layer 2 (domain criteria) are shown
+  read-only by design; Layer 3 (QA thresholds) is editable. Saving persists to
+  `criteria.yaml` (original backed up) and re-enforces the managed instruction
+  block so Claude Code / Codex immediately see the new thresholds.
+
+```bash
+harness-lens gui            # opens http://127.0.0.1:8765/ in your browser
+harness-lens gui --port 9000 --no-browser
+```
+
+It binds to loopback only — the Layer-3 edit endpoint is meant for the single
+local user, not the network.

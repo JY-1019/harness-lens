@@ -221,6 +221,17 @@ class LensService:
             "layer3": self.criteria.qa.config.as_dict(),
         }
 
+    def update_layer3(self, params: dict) -> dict:
+        """Persist a user edit of the Layer-3 thresholds (e.g. from the GUI) and re-enforce.
+
+        Reuses the evolution apply path so the same coercion/range checks hold: only Layer 3 is
+        editable, so Layer 1/2 are deliberately not touched here. Writes criteria.yaml (original
+        backed up), reloads, and refreshes the managed instruction block. Returns the new Layer-3
+        config. Raises :class:`ComponentError` when no recognised, in-range parameter is supplied.
+        """
+        self._apply_layer3_params(params)
+        return self.criteria.qa.config.as_dict()
+
     @staticmethod
     def _has_project_signal(project_root: Path, platform) -> bool:
         """Whether ``project_root`` carries this platform's project-local harness files.
@@ -634,6 +645,11 @@ class LensService:
                 coerced = caster(value)
             except (TypeError, ValueError):
                 continue
+            if caster is int and float(value) != coerced:
+                # int(2.9) == 2 silently truncates, so a fractional value for a count field
+                # (retry_threshold, failure_count_trigger) would persist a different number than
+                # was entered. Reject it instead of quietly rounding down.
+                raise ComponentError(f"Layer-3 parameter {key} must be a whole number (got {value})")
             if not layer3_in_range(key, coerced):
                 # Out-of-range thresholds (e.g. retry_threshold 0, quality_threshold 2)
                 # would make find_failure_patterns flag every group, poisoning diagnosis.

@@ -13,6 +13,7 @@
     harness-lens rollback       revert last applied change
     harness-lens status         3-Layer + prediction hit-rate + Judge
     harness-lens serve          run the MCP server
+    harness-lens gui            launch the local web GUI (monitor + edit the 3-Layer harness)
     harness-lens hook <event>   internal: receive a harness hook event
 """
 
@@ -290,6 +291,13 @@ def cmd_serve(args) -> int:
     return serve_main()
 
 
+def cmd_gui(args) -> int:
+    from .gui import serve
+
+    serve(port=args.port, open_browser=not args.no_browser)
+    return 0
+
+
 # --------------------------------------------------------------------------- #
 # Parser
 # --------------------------------------------------------------------------- #
@@ -339,6 +347,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("rollback", help="revert last applied change").set_defaults(func=cmd_rollback)
     sub.add_parser("status", help="overall status").set_defaults(func=cmd_status)
     sub.add_parser("serve", help="run the MCP server").set_defaults(func=cmd_serve)
+
+    p_gui = sub.add_parser("gui", help="launch the local web GUI (monitor + edit the 3-Layer harness)")
+    p_gui.add_argument("--port", type=int, default=8765, help="localhost port (default: 8765)")
+    p_gui.add_argument("--no-browser", action="store_true", help="don't auto-open the browser")
+    p_gui.set_defaults(func=cmd_gui)
     return parser
 
 
