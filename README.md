@@ -147,6 +147,7 @@ harness-lens show         # Flow/Task[category]/Step + gap ratio
 | `harness-lens status` | 3-Layer + hit-rate + Judge + gap ratio |
 | `harness-lens serve` | run the MCP server (used by the harness) |
 | `harness-lens gui [--port N] [--no-browser]` | launch the local web GUI to monitor + edit the 3-Layer harness |
+| `harness-lens benchmark` | verify the managed harness honours its 3-Layer boundaries (CI-friendly exit code) |
 
 Gap-dominated patterns (over 50% unobserved, i.e. mostly Codex gaps) are held
 back from evolution — a prediction built on missing evidence isn't trustworthy.
@@ -171,3 +172,26 @@ harness-lens gui --port 9000 --no-browser
 
 It binds to loopback only — the Layer-3 edit endpoint is meant for the single
 local user, not the network.
+
+## Benchmark
+
+`harness-lens benchmark` checks that the managed harness actually *behaves* the
+way its 3-Layer criteria say it should. It runs synthetic Flows through the same
+deterministic Layer-1 (invariant) and Layer-3 (QA threshold) machinery the live
+harness uses and asserts the harness reacts exactly at its configured
+boundaries:
+
+- **Layer 1** — a clean step is never flagged; a step matching an *active*
+  invariant (one your `criteria.yaml` turns on) is flagged.
+- **Layer 3** — failure / retry / latency / quality patterns trip *at* the
+  threshold and stay quiet just below it.
+
+Layer-3 expectations are derived from the **effective** thresholds, so the
+benchmark stays correct after you (or AHE) edit Layer 3 — it always asks "does
+the harness honour its *current* boundary?". Layer 2 (the LLM Judge) is
+non-deterministic and out of scope, so the benchmark runs fully offline and
+exits non-zero on any failure, making it usable as a CI gate.
+
+```bash
+harness-lens benchmark
+```

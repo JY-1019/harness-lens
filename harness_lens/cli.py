@@ -14,6 +14,7 @@
     harness-lens status         3-Layer + prediction hit-rate + Judge
     harness-lens serve          run the MCP server
     harness-lens gui            launch the local web GUI (monitor + edit the 3-Layer harness)
+    harness-lens benchmark      verify the managed harness honours its 3-Layer boundaries
     harness-lens hook <event>   internal: receive a harness hook event
 """
 
@@ -298,6 +299,19 @@ def cmd_gui(args) -> int:
     return 0
 
 
+def cmd_benchmark(args) -> int:
+    from . import home_dir
+    from .benchmark import run_benchmark
+    from .criteria import ThreeLayerCriteria
+
+    # Load criteria.yaml directly — the benchmark is read-only and meant to run in isolated/CI
+    # environments, so it must not open or migrate the ledger (LensService) as a side effect.
+    criteria = ThreeLayerCriteria.load(home_dir() / "criteria.yaml")
+    report = run_benchmark(criteria)
+    print(report.render())
+    return 0 if report.ok else 1
+
+
 # --------------------------------------------------------------------------- #
 # Parser
 # --------------------------------------------------------------------------- #
@@ -352,6 +366,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_gui.add_argument("--port", type=int, default=8765, help="localhost port (default: 8765)")
     p_gui.add_argument("--no-browser", action="store_true", help="don't auto-open the browser")
     p_gui.set_defaults(func=cmd_gui)
+
+    sub.add_parser(
+        "benchmark", help="verify the managed harness honours its 3-Layer boundaries"
+    ).set_defaults(func=cmd_benchmark)
     return parser
 
 
