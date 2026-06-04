@@ -72,8 +72,17 @@ def detect_all() -> list[Platform]:
 
 
 def detect(name: Optional[str] = None) -> Optional[Platform]:
-    """Return the requested platform, or the first detected one when ``name`` is None."""
+    """Return the requested platform, or the first detected one when ``name`` is None.
+
+    With no explicit ``name``, ``HARNESS_LENS_PLATFORM`` (set by the Codex hooks and by the
+    generated SKILL wrapper) pins the choice, so on a dual-install machine the skill that was
+    installed for one harness drives that harness instead of the registry-first default.
+    """
+    import os
+
     platforms = detect_all()
+    if name is None:
+        name = os.environ.get("HARNESS_LENS_PLATFORM", "").strip() or None
     if name is None:
         return platforms[0] if platforms else None
     for platform in platforms:

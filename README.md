@@ -41,6 +41,18 @@ at `~/.harness-lens/` (`ledger.db`, `criteria.yaml`, `components/`, `backups/`).
 The `[all]` extra pulls in `anthropic` (a direct-API Judge / diagnose-evolve
 backend) and `mcp` (the server).
 
+### Invoke as a skill, not only a CLI
+
+`install` also drops a **SKILL wrapper** so the host agent can reach harness-lens
+without you typing the CLI. Both harnesses load skills the same way — a `SKILL.md`
+with `name` + `description` frontmatter under `<config>/skills/<name>/` — so the
+wrapper lands at `~/.claude/skills/harness-lens/SKILL.md` (Claude Code) or
+`~/.codex/skills/harness-lens/SKILL.md` (Codex), triggerable as `harness-lens`. Its
+body wraps the same subcommands (`show`, `harness`, `diagnose`, `evolve`, …) and is
+generated with the same invocation prefix the hooks use, so it works whether or not
+the package is installed globally. Re-emit or refresh it any time with
+`harness-lens skill` (`--print` to inspect without writing).
+
 ### LLM backend — no API key required
 
 Observation (`show`, `status`, hook recording, Layer 1) needs no LLM at all. The
@@ -105,7 +117,8 @@ harness-lens show         # Flow/Task[category]/Step + gap ratio
 
 | Command | Purpose |
 | --- | --- |
-| `harness-lens install [--platform NAME]` | wire hooks + MCP, init runtime |
+| `harness-lens install [--platform NAME]` | wire hooks + MCP, init runtime (also drops the SKILL wrapper) |
+| `harness-lens skill [--platform NAME] [--print]` | (re)install the SKILL wrapper for the host harness, or print it |
 | `harness-lens harness [--project DIR]` | inspect the harness applied to a project (components + Flow/Task/Step + 3-Layer) |
 | `harness-lens show [--fail] [--limit N]` | recent Flows (Layer-2 + gap ratio) |
 | `harness-lens diagnose` | Pillar 2 — Debugger agent (needs API key) |

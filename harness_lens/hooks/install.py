@@ -22,6 +22,7 @@ from .. import home_dir
 from ..components import ComponentManager
 from ..criteria import DEFAULT_CRITERIA_YAML
 from ..detector import Platform, detect
+from ..skill import install_skill
 from ..store import SQLiteStore
 
 # How hooks/MCP invoke harness-lens. Overridable for local/dev installs.
@@ -36,6 +37,21 @@ _DEFAULT_UVX_FROM = "harness-lens[all]"
 
 def _uvx_from_spec() -> str:
     return os.environ.get("HARNESS_LENS_UVX_FROM", "").strip() or _DEFAULT_UVX_FROM
+
+
+def _cli_invocation(launcher=DEFAULT_LAUNCHER) -> str:
+    """Shell prefix the generated skill uses to call ``harness-lens <subcommand>``.
+
+    Mirrors how the host was wired: a uvx launcher expands to the same
+    ``uvx --from <spec> harness-lens`` form the hooks use (quoted so the ``[all]`` extra
+    is not glob-expanded), otherwise the launcher tokens are used as-is.
+    """
+    command, *rest = launcher
+    if command == "uvx":
+        parts = [command, "--from", _uvx_from_spec(), "harness-lens"]
+    else:
+        parts = list(launcher)
+    return " ".join(shlex.quote(p) for p in parts)
 
 # (settings.json event name, hook subcommand, timeout seconds)
 _HOOK_EVENTS = (
@@ -74,6 +90,8 @@ class InstallReport:
     merged_hooks: list[str] = field(default_factory=list)
     mcp_registered: bool = False
     settings_backup: Optional[Path] = None
+    # Where the SKILL wrapper was written (so harness-lens is invocable as a skill, not only CLI).
+    skill_path: Optional[Path] = None
     # Platform-specific advisories shown before the "다음 단계" footer — e.g. Codex's trust
     # requirement and gap caveat, or manual MCP/config.toml steps install cannot do safely.
     notices: list[str] = field(default_factory=list)
@@ -89,6 +107,8 @@ class InstallReport:
         if self.merged_hooks:
             lines.append(f"   hooks   : {', '.join(self.merged_hooks)}")
         lines.append(f"   mcp     : {'registered' if self.mcp_registered else 'unchanged'}")
+        if self.skill_path:
+            lines.append(f"   skill   : {self.skill_path}")
         if self.settings_backup:
             lines.append(f"   backup  : {self.settings_backup}")
         for notice in self.notices:
@@ -312,6 +332,8 @@ def install(platform_name: Optional[str] = None, launcher=DEFAULT_LAUNCHER, root
         settings_path.parent.mkdir(parents=True, exist_ok=True)
         settings_path.write_text(json.dumps(merged, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
+    skill_file, _ = install_skill(platform, invoke=_cli_invocation(launcher))
+
     return InstallReport(
         platform=platform.label,
         settings_path=settings_path,
@@ -320,6 +342,7 @@ def install(platform_name: Optional[str] = None, launcher=DEFAULT_LAUNCHER, root
         merged_hooks=sorted(set(touched)),
         mcp_registered=mcp_registered,
         settings_backup=backup_path,
+        skill_path=skill_file,
     )
 
 
@@ -343,6 +366,8 @@ def _install_codex(platform: Platform, launcher, root: Path, created: list[str])
         hooks_path.parent.mkdir(parents=True, exist_ok=True)
         hooks_path.write_text(json.dumps(merged, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
+    skill_file, _ = install_skill(platform, invoke=_cli_invocation(launcher))
+
     notices = [_CODEX_TRUST_NOTICE, _CODEX_GAP_NOTICE, _codex_mcp_notice(launcher)]
     if _config_toml_has_hooks(hooks_path.parent):
         # We wrote hooks.json, but the user's config.toml also defines [hooks]. We cannot safely
@@ -362,6 +387,7 @@ def _install_codex(platform: Platform, launcher, root: Path, created: list[str])
         merged_hooks=touched,
         mcp_registered=False,
         settings_backup=backup_path,
+        skill_path=skill_file,
         notices=notices,
     )
 

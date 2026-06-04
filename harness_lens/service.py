@@ -135,9 +135,16 @@ class LensService:
         platform-specific. ``platform_name`` forces a platform when both Claude
         Code and Codex are installed (``detect()`` otherwise returns the first).
         """
+        import os
+
         from .harness import LensUnsupportedPlatform, inspect_project
 
         root = Path(project_root) if project_root else Path.cwd()
+        # HARNESS_LENS_PLATFORM (set by the SKILL wrapper / Codex hooks) is an explicit pin, so
+        # the skill's `harness` command targets its own harness instead of erroring as ambiguous
+        # on a dual-install machine with no project-local files. An explicit arg still wins.
+        if platform_name is None:
+            platform_name = os.environ.get("HARNESS_LENS_PLATFORM", "").strip() or None
         platform = self._resolve_inspection_platform(root, platform_name)
         # AHE applies hook/instruction proposals through _live_target -> detect() (no name),
         # which resolves to the first registered installed platform. A component is only

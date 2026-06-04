@@ -1,6 +1,7 @@
 """Command-line interface.
 
     harness-lens install        wire into Claude Code + init runtime
+    harness-lens skill          (re)install the SKILL wrapper (--print to show)
     harness-lens harness        inspect the harness applied to a project
     harness-lens show [--fail]  recent Flows (with Layer 2)
     harness-lens diagnose       Pillar 2 — Debugger agent
@@ -63,6 +64,28 @@ def cmd_install(args) -> int:
 
     report = install(platform_name=args.platform)
     print(report.render())
+    return 0
+
+
+def cmd_skill(args) -> int:
+    from .detector import detect
+    from .hooks.install import _cli_invocation
+    from .skill import install_skill, render
+
+    platform = detect(args.platform)
+    if platform is None:
+        print(
+            "지원되는 하네스를 찾지 못했습니다 (Claude Code / Codex 미설치). "
+            "--platform 으로 지정하거나 해당 하네스를 설치하세요.",
+            file=sys.stderr,
+        )
+        return 1
+    invoke = _cli_invocation()
+    if args.print:
+        print(render(platform, invoke=invoke))
+        return 0
+    path, changed = install_skill(platform, invoke=invoke)
+    print(f"SKILL {'작성됨' if changed else '변경 없음'} ({platform.label}): {path}")
     return 0
 
 
@@ -237,6 +260,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_install = sub.add_parser("install", help="wire into Claude Code / Codex + init runtime")
     p_install.add_argument("--platform", default=None, help="force a platform id (default: auto-detect)")
     p_install.set_defaults(func=cmd_install)
+
+    p_skill = sub.add_parser("skill", help="(re)install the SKILL wrapper for the host harness")
+    p_skill.add_argument("--platform", default=None, help="force a platform id (default: auto-detect)")
+    p_skill.add_argument("--print", action="store_true", help="print the skill instead of writing it")
+    p_skill.set_defaults(func=cmd_skill)
 
     p_show = sub.add_parser("show", help="recent Flows")
     p_show.add_argument("--fail", action="store_true", help="only failed Flows")
