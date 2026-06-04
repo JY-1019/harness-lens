@@ -3,7 +3,9 @@
     harness-lens install        wire into Claude Code + init runtime
     harness-lens skill          (re)install the SKILL wrapper (--print to show)
     harness-lens harness        inspect the harness applied to a project
-    harness-lens show [--fail]  recent Flows (with Layer 2)
+    harness-lens enforce        write the 3-Layer criteria into the instruction file
+    harness-lens layers         show the 3-Layer criteria currently enforced
+    harness-lens show [--fail]  recent Flows (with 3-Layer view)
     harness-lens diagnose       Pillar 2 — Debugger agent
     harness-lens evolve         Pillar 3 — proposals (+ --apply ID --yes)
     harness-lens verify         verify predictions → confirm / roll back
@@ -38,10 +40,14 @@ def _render_flow(flow: dict) -> str:
     l2 = f"{flow['layer2_avg']:.2f}" if flow["layer2_avg"] is not None else "n/a"
     gap_count = flow.get("gap_count", 0)
     gap = f"   |  gap: {flow.get('gap_ratio', 0.0):.0%} (관측 불가 {gap_count} step)" if gap_count else ""
+    l1_failed = flow.get("layer1_failed", 0)
+    l1 = "ok" if not l1_failed else f"위반 {l1_failed}"
+    triggers = flow.get("layer3_triggers", [])
+    l3 = "ok" if not triggers else ", ".join(triggers)
     lines = [
         f"Flow {flow['session_id'][:8]}  [{flow['platform']}]  "
         f"tokens {flow['total_tokens']:,}  {mark}",
-        f"  Layer 2: {l2}{gap}",
+        f"  Layer 1: {l1}   Layer 2: {l2}   Layer 3: {l3}{gap}",
     ]
     for i, task in enumerate(flow["tasks"], 1):
         steps = task["steps"]
@@ -237,10 +243,44 @@ def cmd_status(args) -> int:
     print(f"  Judge      : {judge.recommendation}")
     print(f"  예측 적중률 : {f'{hit:.0%}' if hit is not None else 'n/a'}")
     print(f"  gap 비율    : {s.get('gap_ratio', 0.0):.0%}")
+    print(f"  Layer 1    : invariant {len(s['layer1'])}개")
+    print(f"  Layer 2    : domain criterion {len(s['layer2'])}개")
     print(f"  Layer 3    : {s['layer3']}")
     print(f"  수정안      : {s['candidates']}")
     if not service.llm_available():
         print("  (참고) LLM 백엔드 없음 — ANTHROPIC_API_KEY 설정 또는 claude/codex CLI 로그인 필요 (diagnose/evolve 비활성)")
+    return 0
+
+
+def cmd_enforce(args) -> int:
+    from .criteria.layer import CriteriaViolation
+
+    service = _service()
+    try:
+        target = service.enforce_criteria(platform_name=args.platform)
+    except CriteriaViolation as exc:
+        print(f"강제 거부: {exc}", file=sys.stderr)
+        return 1
+    if target is None:
+        print("지원되는 하네스를 찾지 못했습니다 (Claude Code / Codex 미설치).", file=sys.stderr)
+        return 1
+    print(f"3-Layer 하네스를 강제했습니다 → {target}")
+    return 0
+
+
+def cmd_layers(args) -> int:
+    service = _service()
+    v = service.layers_view()
+    print("harness-lens 3-Layer 하네스 (현재 강제 중)")
+    print("  Layer 1 — Invariants (절대 위반 금지):")
+    for rule in v["invariants"]:
+        print(f"    - {rule}")
+    print("  Layer 2 — Domain criteria (행동 기준):")
+    for dc in v["domain_criteria"]:
+        print(f"    - [{dc['id']}] {dc['description']} (weight {dc['weight']})")
+    print("  Layer 3 — QA thresholds (품질 한계선):")
+    for key, value in v["layer3"].items():
+        print(f"    - {key}: {value}")
     return 0
 
 
@@ -275,6 +315,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_harness.add_argument("--project", default=None, help="project root (default: cwd)")
     p_harness.add_argument("--platform", default=None, help="force a platform id (default: auto-detect)")
     p_harness.set_defaults(func=cmd_harness)
+
+    p_enforce = sub.add_parser("enforce", help="write the 3-Layer criteria into the instruction file")
+    p_enforce.add_argument("--platform", default=None, help="force a platform id (default: auto-detect)")
+    p_enforce.set_defaults(func=cmd_enforce)
+
+    sub.add_parser("layers", help="show the 3-Layer criteria currently enforced").set_defaults(func=cmd_layers)
 
     sub.add_parser("diagnose", help="Pillar 2 diagnosis").set_defaults(func=cmd_diagnose)
 
