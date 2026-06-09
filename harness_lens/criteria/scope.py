@@ -36,7 +36,7 @@ import yaml
 
 from .domain import DomainCriterion
 from .layer import ThreeLayerCriteria
-from .qa import QACriteria, QAConfig
+from .qa import QACriteria, QAConfig, layer3_in_range
 
 _MODES = ("observe", "enforce")
 # Beats any cwd_prefix length, so an exact session match always wins resolution.
@@ -72,6 +72,83 @@ def _path_has_prefix(cwd: str, prefix: str) -> bool:
     return c == p or c.startswith(p + "/")
 
 
+def _clean_layer3(raw: dict) -> dict:
+    """Keep only known Layer-3 keys, coerced to their numeric type and within range."""
+    defaults = QAConfig()
+    out: dict = {}
+    for key, value in (raw or {}).items():
+        if key not in QACriteria.EVOLVABLE_KEYS:
+            continue
+        try:
+            coerced = type(getattr(defaults, key))(value)
+        except (TypeError, ValueError):
+            continue
+        if layer3_in_range(key, coerced):
+            out[key] = coerced
+    return out
+
+
+def _scope_from_raw(raw, index: int) -> Optional[Scope]:
+    """Build one :class:`Scope` from a criteria.yaml / API entry, or None if unusable."""
+    if not isinstance(raw, dict):
+        return None
+    match = raw.get("match")
+    if not isinstance(match, dict):
+        match = {}
+    cwd_prefix = match.get("cwd_prefix")
+    session_id = match.get("session_id")
+    if not cwd_prefix and not session_id:
+        return None  # a scope with nothing to match on can never apply — drop it
+    mode = raw.get("mode")
+    if mode not in _MODES:
+        mode = None
+    domain = [
+        DomainCriterion.from_dict(d)
+        for d in (raw.get("add_domain_criteria") or [])
+        if isinstance(d, dict) and d.get("id")
+    ]
+    return Scope(
+        name=str(raw.get("name") or cwd_prefix or session_id or f"scope-{index + 1}"),
+        cwd_prefix=str(cwd_prefix) if cwd_prefix else None,
+        session_id=str(session_id) if session_id else None,
+        mode=mode,
+        add_invariants=[str(x) for x in (raw.get("add_invariants") or []) if str(x).strip()],
+        add_domain_criteria=domain,
+        layer3=_clean_layer3(raw.get("layer3") or {}),
+    )
+
+
+def parse_scopes(raws) -> list[Scope]:
+    """Validate a list of raw scope dicts (from the GUI/API), dropping unusable entries."""
+    out: list[Scope] = []
+    for i, raw in enumerate(raws or []):
+        scope = _scope_from_raw(raw, i)
+        if scope is not None:
+            out.append(scope)
+    return out
+
+
+def scope_to_payload(scope: Scope) -> dict:
+    """Plain dict for criteria.yaml / the API. Round-trips through :func:`parse_scopes`."""
+    out: dict = {"name": scope.name, "match": {}}
+    if scope.cwd_prefix:
+        out["match"]["cwd_prefix"] = scope.cwd_prefix
+    if scope.session_id:
+        out["match"]["session_id"] = scope.session_id
+    if scope.mode:
+        out["mode"] = scope.mode
+    if scope.layer3:
+        out["layer3"] = dict(scope.layer3)
+    if scope.add_invariants:
+        out["add_invariants"] = list(scope.add_invariants)
+    if scope.add_domain_criteria:
+        out["add_domain_criteria"] = [
+            {"id": d.id, "description": d.description, "judge_prompt": d.judge_prompt, "weight": d.weight}
+            for d in scope.add_domain_criteria
+        ]
+    return out
+
+
 def load_scopes(path: Optional[Path]) -> list[Scope]:
     """Parse the optional ``scopes:`` list from criteria.yaml. Malformed entries are skipped."""
     if path is None or not Path(path).exists():
@@ -80,34 +157,9 @@ def load_scopes(path: Optional[Path]) -> list[Scope]:
         data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     except (yaml.YAMLError, OSError):
         return []
-    out: list[Scope] = []
-    for i, raw in enumerate(data.get("scopes") or []):
-        if not isinstance(raw, dict):
-            continue
-        match = raw.get("match") or {}
-        if not isinstance(match, dict):
-            match = {}
-        mode = raw.get("mode")
-        if mode not in _MODES:
-            mode = None
-        cwd_prefix = match.get("cwd_prefix")
-        session_id = match.get("session_id")
-        if not cwd_prefix and not session_id:
-            continue  # a scope with nothing to match on can never apply — drop it
-        domain = []
-        for d in raw.get("add_domain_criteria") or []:
-            if isinstance(d, dict) and d.get("id"):
-                domain.append(DomainCriterion.from_dict(d))
-        out.append(Scope(
-            name=str(raw.get("name") or cwd_prefix or session_id or f"scope-{i + 1}"),
-            cwd_prefix=str(cwd_prefix) if cwd_prefix else None,
-            session_id=str(session_id) if session_id else None,
-            mode=mode,
-            add_invariants=[str(x) for x in (raw.get("add_invariants") or [])],
-            add_domain_criteria=domain,
-            layer3=dict(raw.get("layer3") or {}),
-        ))
-    return out
+    if not isinstance(data, dict):
+        return []
+    return parse_scopes(data.get("scopes") or [])
 
 
 def resolve_scope(scopes: list[Scope], cwd: Optional[str],

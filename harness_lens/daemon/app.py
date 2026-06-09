@@ -87,6 +87,17 @@ def create_app(runtime: Optional[DaemonRuntime] = None, root: Optional[Path] = N
             raise HTTPException(status_code=400, detail=f"mode must be one of {MODES}")
         return {"mode": runtime.set_mode(mode)}
 
+    @app.get("/api/scopes")
+    async def get_scopes(_=Depends(auth)) -> dict:
+        return {"scopes": runtime.scopes_payload()}
+
+    @app.post("/api/scopes")
+    async def set_scopes(body: dict, _=Depends(auth)) -> dict:
+        scopes = body.get("scopes")
+        if not isinstance(scopes, list):
+            raise HTTPException(status_code=400, detail="scopes must be a list")
+        return {"scopes": runtime.save_scopes(scopes)}
+
     @app.get("/api/approvals")
     async def approvals(_=Depends(auth)) -> list[dict]:
         from dataclasses import asdict

@@ -19,8 +19,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+import yaml
+
 from .. import home_dir
-from ..criteria import ThreeLayerCriteria, apply_scope, load_scopes, resolve_scope
+from ..components import ComponentManager
+from ..criteria import (
+    DEFAULT_CRITERIA_YAML, ThreeLayerCriteria, apply_scope, load_scopes, parse_scopes,
+    resolve_scope, scope_to_payload,
+)
 from .adapters import get_adapter
 from .approvals import APPROVED, DENIED, TIMEOUT, ApprovalQueue
 from .bus import EventBus
@@ -150,6 +156,41 @@ class DaemonRuntime:
         self.policy = PolicyEngine(self.criteria, self.criteria_path)
         self.scopes = load_scopes(self.criteria_path)
         self._scope_policies.clear()  # rebuilt lazily against the reloaded base/scopes
+
+    # -- scope editing (GUI/API) ----------------------------------------- #
+    def scopes_payload(self) -> list[dict]:
+        """Current scopes as plain dicts for the API/GUI."""
+        return [scope_to_payload(s) for s in self.scopes]
+
+    def save_scopes(self, raw_scopes: list) -> list[dict]:
+        """Validate + persist the scopes section of criteria.yaml (backed up), then hot-reload.
+
+        Only the ``scopes:`` key is rewritten; the global base layers are preserved. Returns the
+        cleaned scopes now in force. (PyYAML does not preserve comments, so the commented example
+        in a pristine criteria.yaml is dropped once scopes are saved from the GUI — by design, the
+        file becomes GUI-managed from then on.)"""
+        cleaned = parse_scopes(raw_scopes)
+        # Start from the current file so the global base layers are preserved; if there is no file
+        # yet, seed from the default so saving scopes never silently drops the base invariants.
+        source = (
+            self.criteria_path.read_text(encoding="utf-8")
+            if self.criteria_path.exists() else DEFAULT_CRITERIA_YAML
+        )
+        try:
+            loaded = yaml.safe_load(source)
+        except yaml.YAMLError:
+            loaded = None
+        data: dict = loaded if isinstance(loaded, dict) else {}
+        if cleaned:
+            data["scopes"] = [scope_to_payload(s) for s in cleaned]
+        else:
+            data.pop("scopes", None)
+        text = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+        # criteria.yaml is the qa.py-managed component, so reuse that name for the same backup
+        # machinery the legacy Layer-3 edit path uses.
+        ComponentManager(self.root).apply("qa.py", self.criteria_path, text)
+        self.reload_criteria()
+        return self.scopes_payload()
 
     def _scope_for(self, event: HarnessEvent):
         """The scope (if any) that applies to this event's project/session."""

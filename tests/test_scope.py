@@ -8,7 +8,8 @@ relies on: a scoped-enforce project denies while the global-observe base allows 
 from __future__ import annotations
 
 from harness_lens.criteria import (
-    Scope, ThreeLayerCriteria, apply_scope, load_scopes, resolve_scope,
+    Scope, ThreeLayerCriteria, apply_scope, load_scopes, parse_scopes, resolve_scope,
+    scope_to_payload,
 )
 from harness_lens.daemon.capabilities import ALLOW, DENY
 from harness_lens.daemon.events import HarnessEvent
@@ -122,3 +123,52 @@ def test_scoped_enforce_denies_while_global_observes():
     other = _ev("/p/other", session_id="s2")
     assert resolve_scope(scopes, other.cwd, other.session_id) is None
     assert PolicyEngine(apply_scope(base, None)).evaluate_pre_tool(other, global_mode).action == ALLOW
+
+
+# -- GUI/API edit path ---------------------------------------------------- #
+def test_parse_scopes_cleans_and_validates():
+    raws = [
+        {"name": "ok", "match": {"cwd_prefix": "/p"}, "mode": "enforce",
+         "layer3": {"retry_threshold": "2", "quality_threshold": 5, "bogus": 1}},
+        {"name": "no-match", "mode": "enforce"},  # nothing to match on → dropped
+        "not-a-dict",                             # malformed → dropped
+        {"name": "bad-mode", "match": {"session_id": "s"}, "mode": "nope"},
+    ]
+    scopes = parse_scopes(raws)
+    assert [s.name for s in scopes] == ["ok", "bad-mode"]
+    ok = scopes[0]
+    assert ok.layer3 == {"retry_threshold": 2}  # coerced to int; out-of-range/unknown keys dropped
+    assert ok.mode == "enforce"
+    assert scopes[1].mode is None  # invalid mode → inherit global
+
+
+def test_scope_payload_roundtrips_through_parse():
+    original = Scope("x", cwd_prefix="/p/app", mode="enforce",
+                     layer3={"retry_threshold": 1}, add_invariants=["A 금지"])
+    back = parse_scopes([scope_to_payload(original)])[0]
+    assert back.cwd_prefix == "/p/app" and back.mode == "enforce"
+    assert back.layer3 == {"retry_threshold": 1} and back.add_invariants == ["A 금지"]
+
+
+def test_runtime_save_scopes_persists_reloads_and_preserves_base(tmp_home):
+    from harness_lens.daemon.runtime import DaemonRuntime
+
+    rt = DaemonRuntime(root=tmp_home)
+    try:
+        saved = rt.save_scopes([
+            {"name": "secure", "match": {"cwd_prefix": "/p/secure"}, "mode": "enforce",
+             "layer3": {"retry_threshold": 1}},
+            {"name": "drop-me"},  # no match → dropped before persisting
+        ])
+        assert [s["name"] for s in saved] == ["secure"]
+        # Hot-reloaded into the live runtime…
+        assert len(rt.scopes) == 1 and rt.scopes[0].mode == "enforce"
+        # …persisted to disk…
+        assert load_scopes(tmp_home / "criteria.yaml")[0].cwd_prefix == "/p/secure"
+        # …and the global base survived the rewrite (seeded from the default, not blanked).
+        assert "프로덕션 DB에 직접 DELETE를 실행하지 않는다" in rt.criteria.invariants
+        # Clearing scopes removes the section without harming the base.
+        rt.save_scopes([])
+        assert rt.scopes == [] and rt.criteria.invariants
+    finally:
+        rt.ledger.close()

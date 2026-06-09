@@ -71,12 +71,29 @@ _PAGE = r"""<!DOCTYPE html>
   .row { display:flex; gap:.4rem; }
   pre { white-space:pre-wrap; word-break:break-word; background:#8881; border-radius:6px; padding:.4rem; max-height:18rem; overflow:auto; }
   input[type=text] { font:inherit; width:100%; padding:.2rem; }
+  /* scope editor modal */
+  .modal { position:fixed; inset:0; background:#0008; display:flex; align-items:center; justify-content:center; z-index:50; }
+  .modalbox { background:Canvas; color:CanvasText; border:1px solid var(--line); border-radius:10px;
+              width:min(48rem,94vw); max-height:88vh; display:flex; flex-direction:column; box-shadow:0 6px 30px #0007; }
+  .modalhead, .modalfoot { display:flex; align-items:center; gap:.5rem; padding:.55rem .8rem; }
+  .modalhead { border-bottom:1px solid var(--line); } .modalfoot { border-top:1px solid var(--line); }
+  #scopeList { overflow:auto; padding:.6rem .8rem; display:flex; flex-direction:column; gap:.7rem; }
+  #scopeList:empty::after { content:"스코프가 없습니다. '+ 추가'로 만드세요."; opacity:.6; }
+  .scoperow { border:1px solid var(--line); border-radius:8px; padding:.5rem .6rem; display:grid; gap:.4rem; }
+  .scoperow .line { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }
+  .scoperow label { font-size:.74rem; opacity:.65; }
+  .scoperow input, .scoperow select, .scoperow textarea { font:inherit; padding:.2rem .35rem; border:1px solid var(--line);
+              border-radius:5px; background:transparent; color:inherit; }
+  .scoperow .nm { flex:1; min-width:7rem; } .scoperow .mv { flex:1; min-width:11rem; } .scoperow .l3 { width:5rem; }
+  .scoperow textarea { width:100%; min-height:2.2rem; resize:vertical; }
+  .scoperow .del { color:var(--red); border:1px solid var(--red); border-radius:5px; padding:.1rem .5rem; margin-left:auto; }
 </style>
 </head>
 <body>
 <header>
   <h1>harness-lens <span class="muted">live</span></h1>
   <button id="mode" title="모드 전환">mode: …</button>
+  <button id="scopes" title="프로젝트/세션별 정책 스코프">scopes</button>
   <span class="grow"></span>
   <span id="pending" class="badge" style="display:none"></span>
   <span id="conn" class="badge">●</span>
@@ -86,6 +103,14 @@ _PAGE = r"""<!DOCTYPE html>
   <div id="canvas"></div>
   <div id="detail"><h2>상세</h2><div id="detail-body" class="muted">노드를 선택하세요.</div></div>
 </main>
+<div id="scopeModal" class="modal" style="display:none">
+  <div class="modalbox">
+    <div class="modalhead"><b>정책 스코프</b><span class="muted">프로젝트(cwd)/세션별로 전역 base 위에 덮어씀</span>
+      <span class="grow"></span><button id="scopeAdd">+ 추가</button><button id="scopeClose">✕</button></div>
+    <div id="scopeList"></div>
+    <div class="modalfoot"><span id="scopeMsg" class="muted"></span><span class="grow"></span><button id="scopeSave">저장</button></div>
+  </div>
+</div>
 <script>
 const TOKEN = "__HL_TOKEN__";
 const H = { "X-HL-Token": TOKEN, "Content-Type": "application/json" };
@@ -283,6 +308,75 @@ $("#mode").onclick = async () => {
   const next = state.mode === "enforce" ? "observe" : "enforce";
   const r = await api("/api/mode", { method:"POST", body: JSON.stringify({ mode: next }) });
   if (r.ok) { state.mode = (await r.json()).mode; renderMode(); }
+};
+
+// ---- scope editor ----
+const L3KEYS = [["retry_threshold","retry"],["latency_multiplier","lat"],
+                ["failure_count_trigger","fail"],["quality_threshold","qual"]];
+function opt(value, label) { const o = el("option", null, label); o.value = value; return o; }
+function scopeRow(s) {
+  s = s || { name:"", match:{}, mode:"", layer3:{}, add_invariants:[] };
+  const row = el("div","scoperow");
+  const l1 = el("div","line");
+  const nm = el("input"); nm.className="nm"; nm.placeholder="이름"; nm.value = s.name||""; nm.dataset.f="name";
+  const mt = el("select"); mt.dataset.f="matchType";
+  mt.append(opt("cwd_prefix","cwd 경로"), opt("session_id","세션 ID"));
+  mt.value = (s.match && s.match.session_id) ? "session_id" : "cwd_prefix";
+  const mv = el("input"); mv.className="mv"; mv.dataset.f="matchValue";
+  mv.placeholder = "/path/to/project 또는 세션 ID";
+  mv.value = (s.match && (s.match.cwd_prefix || s.match.session_id)) || "";
+  const del = el("button","del","삭제"); del.onclick = () => row.remove();
+  l1.append(nm, el("label",null,"match"), mt, mv, del);
+  const l2 = el("div","line");
+  const md = el("select"); md.dataset.f="mode";
+  md.append(opt("","mode: 상속"), opt("observe","observe"), opt("enforce","enforce"));
+  md.value = s.mode || "";
+  l2.append(md, el("label",null,"L3"));
+  for (const [key,lab] of L3KEYS) {
+    const i = el("input"); i.className="l3"; i.type="number"; i.step="any"; i.placeholder=lab; i.dataset.l3=key;
+    if (s.layer3 && s.layer3[key] != null) i.value = s.layer3[key];
+    l2.append(i);
+  }
+  const l3 = el("div","line");
+  const ta = el("textarea"); ta.dataset.f="invariants"; ta.placeholder="추가 invariant (한 줄에 하나, 전역 규칙 위에 가산)";
+  ta.value = (s.add_invariants||[]).join("\n");
+  l3.append(ta);
+  row.append(l1, l2, l3);
+  return row;
+}
+function collectScopes() {
+  return [...document.querySelectorAll("#scopeList .scoperow")].map(row => {
+    const get = f => row.querySelector('[data-f="'+f+'"]');
+    const matchValue = get("matchValue").value.trim();
+    const match = {}; if (matchValue) match[get("matchType").value] = matchValue;
+    const layer3 = {};
+    row.querySelectorAll("[data-l3]").forEach(i => { if (i.value !== "") layer3[i.dataset.l3] = Number(i.value); });
+    const add_invariants = get("invariants").value.split("\n").map(x=>x.trim()).filter(Boolean);
+    const out = { name:get("name").value.trim(), match, layer3, add_invariants };
+    if (get("mode").value) out.mode = get("mode").value;
+    return out;
+  });
+}
+async function openScopes() {
+  const data = await (await api("/api/scopes")).json();
+  const list = $("#scopeList"); list.replaceChildren();
+  (data.scopes||[]).forEach(s => list.append(scopeRow(s)));
+  $("#scopeMsg").textContent = "";
+  $("#scopeModal").style.display = "flex";
+}
+$("#scopes").onclick = openScopes;
+$("#scopeClose").onclick = () => { $("#scopeModal").style.display = "none"; };
+$("#scopeModal").onclick = e => { if (e.target.id === "scopeModal") $("#scopeModal").style.display = "none"; };
+$("#scopeAdd").onclick = () => { $("#scopeList").append(scopeRow()); };
+$("#scopeSave").onclick = async () => {
+  const r = await api("/api/scopes", { method:"POST", body: JSON.stringify({ scopes: collectScopes() }) });
+  if (r.ok) {
+    const d = await r.json();
+    $("#scopeMsg").textContent = "저장됨 — " + d.scopes.length + "개 스코프 적용 (즉시 반영)";
+    loadSnapshot();  // mode chips may change for affected flows
+  } else {
+    $("#scopeMsg").textContent = "저장 실패 (" + r.status + ")";
+  }
 };
 
 renderConn(); loadSnapshot().then(connect);
