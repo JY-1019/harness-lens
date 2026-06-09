@@ -68,11 +68,132 @@ def _render_flow(flow: dict) -> str:
 # Commands
 # --------------------------------------------------------------------------- #
 def cmd_install(args) -> int:
+    # --enforce/--observe install the control-plane daemon hooks (relay → daemon); without
+    # either flag, install the legacy observe-only hooks (unchanged behaviour for upgraders).
+    mode = "enforce" if args.enforce else ("observe" if args.observe else None)
+    if mode is not None:
+        from .daemon.install import install_daemon
+
+        report = install_daemon(mode=mode, platform_name=args.platform)
+        print(report.render())
+        return 0
+
     from .hooks.install import install
 
     report = install(platform_name=args.platform)
     print(report.render())
     return 0
+
+
+def cmd_daemon(args) -> int:
+    from .daemon import runner
+
+    action = args.daemon_action
+    if action == "start":
+        res = runner.start()
+        print(f"daemon: {res.get('status')} (pid {res.get('pid')})")
+        if res.get("detail"):
+            print(f"  {res['detail']}")
+        return 0 if res.get("status") in ("started", "already-running", "starting") else 1
+    if action == "stop":
+        print(f"daemon: {runner.stop().get('status')}")
+        return 0
+    res = runner.status()  # status
+    if res.get("ok"):
+        print(
+            f"daemon: running (pid {res.get('pid')})  mode={res.get('mode')}  "
+            f"pending={res.get('pending_approvals')}  rev={res.get('rev')}"
+        )
+        return 0
+    print(f"daemon: 미응답 (pid {res.get('pid')}, running={res.get('running')})")
+    return 1
+
+
+def cmd_mode(args) -> int:
+    import json
+    import urllib.error
+    import urllib.request
+
+    from .daemon import daemon_base_url
+    from .daemon.config import DaemonConfig, ensure_token
+
+    token = ensure_token()
+    req = urllib.request.Request(
+        f"{daemon_base_url()}/api/mode",
+        data=json.dumps({"mode": args.mode}).encode("utf-8"),
+        headers={"Content-Type": "application/json", "X-HL-Token": token}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=3.0) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        print(f"mode → {body.get('mode')} (실행 중 데몬에 적용됨)")
+        return 0
+    except (urllib.error.URLError, OSError):
+        cfg = DaemonConfig.load()
+        cfg.mode = args.mode
+        cfg.save()
+        print(f"mode → {args.mode} (데몬 미기동 — 다음 start 시 적용)")
+        return 0
+
+
+def cmd_approvals(args) -> int:
+    import json
+    import urllib.error
+    import urllib.request
+
+    from .daemon import daemon_base_url
+    from .daemon.config import ensure_token
+
+    token = ensure_token()
+    base = daemon_base_url()
+    try:
+        req = urllib.request.Request(f"{base}/api/approvals", headers={"X-HL-Token": token})
+        with urllib.request.urlopen(req, timeout=3.0) as resp:
+            pending = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError):
+        print("데몬에 연결할 수 없습니다 (harness-lens daemon start).", file=sys.stderr)
+        return 1
+    if not pending:
+        print("대기 중인 승인이 없습니다.")
+        return 0
+    for a in pending:
+        print(f"\n승인 대기: {a['approval_id']}  step={a['step_id']}")
+        ans = input("  승인하시겠습니까? [y/N] ").strip().lower()
+        resolution = "approved" if ans == "y" else "denied"
+        reason = input("  거부 사유(선택): ").strip() or None if resolution == "denied" else None
+        body = json.dumps({"resolution": resolution, "reason": reason}).encode("utf-8")
+        req = urllib.request.Request(
+            f"{base}/api/approvals/{a['approval_id']}", data=body,
+            headers={"Content-Type": "application/json", "X-HL-Token": token}, method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=3.0):
+                pass
+            print(f"  → {resolution}")
+        except (urllib.error.URLError, OSError) as exc:
+            print(f"  실패: {exc}", file=sys.stderr)
+    return 0
+
+
+def cmd_tail(args) -> int:
+    import time
+
+    from . import home_dir
+    from .daemon.ledger import DaemonLedger
+
+    ledger = DaemonLedger(home_dir() / "ledger.db")
+    after = 0.0 if args.all else time.time()
+    try:
+        while True:
+            for e in ledger.events_since(after):
+                after = max(after, e["ts"])
+                flow = (e["flow_id"] or "")[:8]
+                print(f"{e['ts']:.3f}  {e['kind']:18}  flow={flow}")
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        ledger.close()
 
 
 def cmd_skill(args) -> int:
@@ -98,6 +219,18 @@ def cmd_skill(args) -> int:
 
 
 def cmd_show(args) -> int:
+    # Prefer the daemon's Flow/Task/Step ledger when present, so CLI and GUI read the *same*
+    # tree and never disagree on numbers (design constraint). Fall back to the legacy store for
+    # an observe-only install that never adopted the daemon.
+    from . import home_dir
+
+    db = home_dir() / "ledger.db"
+    if _has_daemon_schema(db):
+        return _show_daemon(db, args)
+
+    if getattr(args, "flow", None):
+        print("daemon ledger가 없어 특정 Flow 조회를 지원하지 않습니다 (harness-lens install --observe 후 사용).", file=sys.stderr)
+        return 1
     service = _service()
     flows = service.get_flow_summary(limit=args.limit, only_failed=args.fail)
     if not flows:
@@ -105,6 +238,84 @@ def cmd_show(args) -> int:
         return 0
     print("\n\n".join(_render_flow(f) for f in flows))
     return 0
+
+
+def _has_daemon_schema(db_path) -> bool:
+    """Whether ``ledger.db`` carries the daemon's new Flow/Task/Step schema (a ``flows`` table)."""
+    import sqlite3
+
+    if not db_path.exists():
+        return False
+    try:
+        con = sqlite3.connect(str(db_path))
+        try:
+            row = con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='flows'"
+            ).fetchone()
+            return row is not None
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return False
+
+
+def _show_daemon(db_path, args) -> int:
+    from .daemon.ledger import DaemonLedger
+
+    ledger = DaemonLedger(db_path)
+    try:
+        if getattr(args, "flow", None):
+            tree = ledger.flow_tree(args.flow)
+            if tree is None:
+                print(f"Flow를 찾을 수 없습니다: {args.flow}", file=sys.stderr)
+                return 1
+            print(_render_daemon_flow(tree))
+            return 0
+        flows = ledger.list_flows(limit=args.limit, status="failed" if args.fail else None)
+        if not flows:
+            print("기록된 Flow가 없습니다. 데몬 설치 후 작업하면 자동 추적됩니다.")
+            return 0
+        trees = [t for t in (ledger.flow_tree(f.flow_id) for f in flows) if t]
+        print("\n\n".join(_render_daemon_flow(t) for t in trees))
+        return 0
+    finally:
+        ledger.close()
+
+
+_DAEMON_MARK = {"completed": "✅", "failed": "⚠", "running": "…", "aborted": "⛔"}
+
+
+def _render_daemon_flow(tree: dict) -> str:
+    mark = _DAEMON_MARK.get(tree["status"], "?")
+    lines = [
+        f"Flow {tree['flow_id'][:8]}  [{tree['source']}]  "
+        f"tokens {tree.get('total_tokens', 0):,}  {mark}   mode={tree.get('mode', '?')}"
+    ]
+    if tree.get("title"):
+        lines.append(f"  {tree['title']}")
+
+    def walk(tasks, depth):
+        indent = "  " * (depth + 1)
+        for task in tasks:
+            steps = task.get("steps", [])
+            fails = sum(1 for s in steps if s.get("status") == "failed")
+            flag = "⚠" if fails else ("…" if task.get("status") == "running" else "✅")
+            if task.get("kind") == "subagent":
+                label = "🤖 " + (task.get("agent_name") or "subagent")
+            else:
+                label = task.get("title") or "turn"
+            extra = f"  (retry {task['retry_count']})" if task.get("retry_count") else ""
+            lines.append(f"{indent}Task [{label[:40]}]  {flag}  {len(steps)} steps{extra}")
+            for s in steps:
+                dec = ""
+                if s.get("decision") and s["decision"] != "allow":
+                    dec = f"  L{s.get('decision_layer')}:{s['decision']}"
+                sc = f"  L2 {s['judge_score']:.2f}" if s.get("judge_score") is not None else ""
+                lines.append(f"{indent}  - {s.get('tool_name', '?')}  {s.get('status')}{dec}{sc}")
+            walk(task.get("children", []), depth + 1)
+
+    walk(tree.get("tasks", []), 0)
+    return "\n".join(lines)
 
 
 def cmd_harness(args) -> int:
@@ -283,6 +494,19 @@ def cmd_layers(args) -> int:
     print("  Layer 3 — QA thresholds (품질 한계선):")
     for key, value in v["layer3"].items():
         print(f"    - {key}: {value}")
+    scopes = v.get("scopes", [])
+    if scopes:
+        print("  Scopes — 프로젝트/세션별 정책 (전역 base 위에 덮어씀):")
+        for s in scopes:
+            match = s["cwd_prefix"] and f"cwd~{s['cwd_prefix']}" or (s["session_id"] and f"session={s['session_id']}") or "?"
+            extras = []
+            if s["mode"]:
+                extras.append(f"mode={s['mode']}")
+            if s["layer3"]:
+                extras.append("layer3=" + ", ".join(f"{k}:{val}" for k, val in s["layer3"].items()))
+            if s["add_invariants"]:
+                extras.append(f"+{len(s['add_invariants'])} invariant")
+            print(f"    - [{s['name']}] {match}  ({'; '.join(extras) or '변경 없음'})")
     return 0
 
 
@@ -293,6 +517,23 @@ def cmd_serve(args) -> int:
 
 
 def cmd_gui(args) -> int:
+    # Prefer the live daemon GUI (/ui) when the daemon is up — it renders the same Flow/Task/Step
+    # tree the CLI reads, with live updates and approvals. Fall back to the legacy localhost
+    # dashboard (observe-only data) when no daemon is running.
+    from .daemon import daemon_base_url, runner
+
+    if runner.status().get("ok"):
+        url = f"{daemon_base_url()}/ui"
+        print(f"daemon GUI → {url}")
+        if not args.no_browser:
+            import webbrowser
+
+            try:
+                webbrowser.open(url)
+            except Exception:
+                pass
+        return 0
+
     from .gui import serve
 
     serve(port=args.port, open_browser=not args.no_browser)
@@ -321,14 +562,33 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_install = sub.add_parser("install", help="wire into Claude Code / Codex + init runtime")
     p_install.add_argument("--platform", default=None, help="force a platform id (default: auto-detect)")
+    # Control-plane daemon install (relay hooks + starting mode). Without either flag, the legacy
+    # observe-only hooks are installed.
+    p_install.add_argument("--enforce", action="store_true", help="install daemon hooks in enforce mode")
+    p_install.add_argument("--observe", action="store_true", help="install daemon hooks in observe mode")
     p_install.set_defaults(func=cmd_install)
+
+    p_daemon = sub.add_parser("daemon", help="run/stop/inspect the control-plane daemon")
+    p_daemon.add_argument("daemon_action", choices=["start", "stop", "status"])
+    p_daemon.set_defaults(func=cmd_daemon)
+
+    p_mode = sub.add_parser("mode", help="switch the daemon between observe/enforce at runtime")
+    p_mode.add_argument("mode", choices=["observe", "enforce"])
+    p_mode.set_defaults(func=cmd_mode)
+
+    sub.add_parser("approvals", help="resolve pending escalations from the terminal").set_defaults(func=cmd_approvals)
+
+    p_tail = sub.add_parser("tail", help="stream daemon HarnessEvents")
+    p_tail.add_argument("--all", action="store_true", help="include events from before now")
+    p_tail.set_defaults(func=cmd_tail)
 
     p_skill = sub.add_parser("skill", help="(re)install the SKILL wrapper for the host harness")
     p_skill.add_argument("--platform", default=None, help="force a platform id (default: auto-detect)")
     p_skill.add_argument("--print", action="store_true", help="print the skill instead of writing it")
     p_skill.set_defaults(func=cmd_skill)
 
-    p_show = sub.add_parser("show", help="recent Flows")
+    p_show = sub.add_parser("show", help="recent Flows (or a single Flow tree)")
+    p_show.add_argument("flow", nargs="?", default=None, help="a flow_id to show in full (daemon ledger)")
     p_show.add_argument("--fail", action="store_true", help="only failed Flows")
     p_show.add_argument("--limit", type=int, default=20)
     p_show.set_defaults(func=cmd_show)
@@ -380,6 +640,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         from .hooks.record import main as hook_main
 
         return hook_main(argv[1:])
+    # The daemon relay is dispatched before argparse too: hooks invoke it with a raw source arg
+    # and pipe the event payload on stdin.
+    if argv and argv[0] == "hook-relay":
+        from .daemon.client import main as relay_main
+
+        return relay_main(argv[1:])
 
     parser = build_parser()
     args = parser.parse_args(argv)

@@ -21,12 +21,17 @@ than kept in memory.
 
 from __future__ import annotations
 
+import hashlib
 import time
+from pathlib import Path
 from typing import Optional
 
-from .store import Session, Step, StorageBackend, new_id
+from .store import Prompt, PromptSnapshot, Session, Step, StorageBackend, new_id
 
 _SUMMARY_LIMIT = 500
+# Requests are stored more generously than step summaries: the GUI shows "what was asked",
+# so keep enough of the prompt to be meaningful while still bounding the row size.
+_PROMPT_LIMIT = 4000
 
 
 def _truncate(text: str, limit: int = _SUMMARY_LIMIT) -> str:
@@ -50,6 +55,8 @@ class Reconstructor:
     }
     DEFAULT_PLATFORM = "claude-code"
     DEFAULT_CATEGORY = "기타"
+    # The global agent-instruction file feeding the system prompt; snapshotted per Flow.
+    GLOBAL_INSTRUCTION = Path.home() / ".claude" / "CLAUDE.md"
 
     def __init__(self, store: StorageBackend, criteria_engine=None):
         self.store = store
@@ -79,6 +86,7 @@ class Reconstructor:
                 status="active",
             )
             self.store.upsert_session(session)
+            self._snapshot_system_prompt(session_id)
         self.store.set_cursor(
             session_id,
             flow_id=new_id("flow"),
@@ -86,6 +94,43 @@ class Reconstructor:
             current_step_id=None, pending_task=0, last_stop_at=None,
         )
         return session
+
+    def _snapshot_system_prompt(self, session_id: str) -> None:
+        """Snapshot the instruction files in effect for this Flow (best-effort).
+
+        The system prompt an agent runs under is the union of the *global* instruction file and
+        any *project-local* one (cwd) — so both are snapshotted (distinct scopes). Records
+        content + sha so the monitor can show which instructions applied and diff them across
+        Flows. Never raises: a missing/unreadable file just records nothing.
+        """
+        self._snapshot_instruction(session_id, "전역", self.GLOBAL_INSTRUCTION)
+        # Project-local CLAUDE.md/AGENTS.md (cwd) also feeds the prompt; snapshot it when it is a
+        # different file from the global one so a project instruction is tracked, not just global.
+        project = Path.cwd() / self.GLOBAL_INSTRUCTION.name
+        try:
+            distinct = project.resolve() != self.GLOBAL_INSTRUCTION.resolve()
+        except OSError:
+            distinct = True
+        if distinct:
+            self._snapshot_instruction(session_id, "프로젝트", project)
+
+    def _snapshot_instruction(self, session_id: str, scope: str, path: Path) -> None:
+        from .enforce import MARKER_START
+
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError:
+            return
+        snippet = content if len(content) <= 20000 else content[:20000] + "\n…(truncated)"
+        self.store.add_prompt_snapshot(PromptSnapshot(
+            session_id=session_id,
+            scope=scope,
+            path=str(path),
+            sha256=hashlib.sha256(content.encode("utf-8")).hexdigest()[:12],
+            line_count=len(content.splitlines()),
+            managed_block=MARKER_START in content,
+            content=snippet,
+        ))
 
     def on_user_prompt(self, session_id: str, prompt: str) -> None:
         self._ensure_session(session_id)
@@ -95,6 +140,29 @@ class Reconstructor:
             pending_task=1,
             last_stop_at=None,  # a new prompt cancels a pending Stop
         )
+        self._record_prompt(session_id, prompt)
+
+    def _record_prompt(self, session_id: str, prompt: str) -> None:
+        """Persist the just-submitted request durably (the cursor only holds it transiently).
+
+        The cursor's ``current_task_name`` is overwritten by the next prompt, so the originating
+        request of each Task would otherwise be unrecoverable. Tag it with the Flow it opened;
+        ``on_pre_tool`` later links it to the Task its first tool call creates. Read the flow_id
+        *after* the cursor is set so a Codex prompt that opened a fresh Flow is attributed to it.
+        Best-effort — a recording failure must never break observation.
+        """
+        text = _truncate(prompt, _PROMPT_LIMIT)
+        if not text:
+            return
+        cursor = self.store.get_cursor(session_id)
+        try:
+            self.store.add_prompt(Prompt(
+                session_id=session_id,
+                flow_id=cursor.get("flow_id") or "",
+                text=text,
+            ))
+        except Exception:
+            pass
 
     def on_pre_tool(self, session_id: str, tool_name: str, input_summary: str = "") -> Step:
         self._ensure_session(session_id)
@@ -151,6 +219,10 @@ class Reconstructor:
             current_step_id=step.step_id,
             pending_task=0,
         )
+        # A pending prompt means this tool call is the first step of the Task that prompt opened;
+        # bind the request to the Task so the GUI can show each Task's originating request.
+        if pending:
+            self.store.link_latest_prompt_to_task(session_id, task_id)
         return step
 
     def on_post_tool(
@@ -250,6 +322,7 @@ class CodexReconstructor(Reconstructor):
     }
     DEFAULT_PLATFORM = "codex"
     DEFAULT_CATEGORY = "관측불가"
+    GLOBAL_INSTRUCTION = Path.home() / ".codex" / "AGENTS.md"
     STOP_REOPEN_WINDOW_SEC = 30
 
     def _observed(self, tool_name: str) -> bool:
@@ -282,3 +355,6 @@ class CodexReconstructor(Reconstructor):
             session.ended_at = None
             self.store.upsert_session(session)
         self.store.set_cursor(session_id, **fields)
+        # Record after the cursor is set so a prompt that opened a fresh Flow (beyond the
+        # reopen window) is attributed to that new flow_id, not the closed one.
+        self._record_prompt(session_id, prompt)

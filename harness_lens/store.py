@@ -29,8 +29,41 @@ def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
 
-def default_db_path() -> Path:
-    return home_dir() / "ledger.db"
+def _is_daemon_ledger(db_path: Path) -> bool:
+    """True if ``db_path`` is a daemon-owned ledger — it carries the Flow/Task/Step ``flows``
+    table, whose schema is incompatible with this observe-only store. The legacy paths must
+    never open such a file: ``init_schema`` would crash on the mismatched ``steps`` columns."""
+    if not db_path.exists():
+        return False
+    try:
+        con = sqlite3.connect(str(db_path))
+        try:
+            return con.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='flows'"
+            ).fetchone() is not None
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return False
+
+
+def default_db_path(root: Optional[Path] = None) -> Path:
+    # The daemon (harness_lens.daemon) owns ``ledger.db`` with the new Flow/Task/Step schema,
+    # which is incompatible with this observe-only schema's ``steps`` table. The legacy read
+    # paths (show/status/gui via LensService) must therefore never open a daemon-owned DB.
+    #
+    # When the daemon adopts ``ledger.db`` it relocates any prior observe-only ledger to
+    # ``ledger.legacy.db``; prefer that file. But a *daemon-first* install (``install --observe``
+    # or a fresh daemon) creates a daemon-schema ``ledger.db`` with no legacy DB to relocate — so
+    # whenever ``ledger.db`` carries the daemon schema we route to ``ledger.legacy.db`` regardless
+    # (a fresh empty legacy DB is created there on demand). Only a genuine observe-only
+    # ``ledger.db`` (or none yet) is returned.
+    home = root or home_dir()
+    legacy = home / "ledger.legacy.db"
+    if legacy.exists():
+        return legacy
+    primary = home / "ledger.db"
+    return legacy if _is_daemon_ledger(primary) else primary
 
 
 # --------------------------------------------------------------------------- #
@@ -61,6 +94,11 @@ class Step:
     retry_count: int = 0
     layer1_passed: Optional[bool] = None
     layer2_score: Optional[float] = None  # NULL = not evaluated
+    # Natural-language harness attribution (design §3 ②-lite). JSON strings, "" = not recorded.
+    # layer1_detail: {"checked": [rule, ...], "violations": [{"rule", "detail"}, ...]}
+    # layer2_verdicts: [{"criterion_id", "passed", "reason", "weight"}, ...]
+    layer1_detail: str = ""
+    layer2_verdicts: str = ""
     # False marks a "관측 불가" gap: a step the platform (notably Codex) could not surface
     # through its hooks, so its evidence is incomplete. True for fully observed steps.
     observed: bool = True
@@ -104,6 +142,42 @@ class JudgeSample:
     human_label: Optional[float] = None
     agreement: Optional[bool] = None
     reviewed_at: Optional[float] = None
+
+
+@dataclass
+class PromptSnapshot:
+    """A copy of an agent-instruction file (CLAUDE.md / AGENTS.md) as it was at session start.
+
+    The hooks cannot read the platform's *assembled* system prompt, but the instruction file is
+    its AHE-controllable source (enforce.py writes the 3-Layer block into it), so snapshotting it
+    per Flow makes "which system-prompt instructions were in effect" trackable and diffable.
+    """
+    session_id: str
+    scope: str          # '전역' (home) — '프로젝트' reserved for a later build
+    path: str
+    sha256: str
+    line_count: int = 0
+    managed_block: bool = False  # whether the enforce-managed 3-Layer block was present
+    content: str = ""
+    captured_at: float = field(default_factory=time.time)
+
+
+@dataclass
+class Prompt:
+    """A user request (UserPromptSubmit) that opened a Task within a Flow.
+
+    The reconstruction cursor only holds the *latest* prompt (``current_task_name``), which the
+    next prompt overwrites — so without this durable record the originating request of each Task
+    is unrecoverable for display. ``task_id`` is linked once the prompt's first tool step creates
+    its Task; it stays ``None`` for a prompt that produced no observed tool call.
+    """
+    session_id: str
+    flow_id: str = ""
+    text: str = ""
+    task_id: Optional[str] = None
+    seq: int = 0
+    prompt_id: str = field(default_factory=lambda: new_id("prompt"))
+    created_at: float = field(default_factory=time.time)
 
 
 # --------------------------------------------------------------------------- #
@@ -161,6 +235,14 @@ class StorageBackend(ABC):
     @abstractmethod
     def judge_samples(self, reviewed_only: bool = False) -> list[JudgeSample]: ...
 
+    # prompts (user requests)
+    @abstractmethod
+    def add_prompt(self, prompt: "Prompt") -> "Prompt": ...
+    @abstractmethod
+    def link_latest_prompt_to_task(self, session_id: str, task_id: str) -> None: ...
+    @abstractmethod
+    def prompts_for_session(self, session_id: str) -> list["Prompt"]: ...
+
     # reconstruction cursor (internal)
     @abstractmethod
     def get_cursor(self, session_id: str) -> dict: ...
@@ -195,6 +277,8 @@ CREATE TABLE IF NOT EXISTS steps (
     retry_count   INTEGER NOT NULL DEFAULT 0,
     layer1_passed INTEGER,
     layer2_score  REAL,
+    layer1_detail   TEXT NOT NULL DEFAULT '',
+    layer2_verdicts TEXT NOT NULL DEFAULT '',
     observed      INTEGER NOT NULL DEFAULT 1,
     timestamp     REAL NOT NULL
 );
@@ -236,6 +320,29 @@ CREATE TABLE IF NOT EXISTS judge_samples (
     agreement   INTEGER,
     reviewed_at REAL
 );
+
+CREATE TABLE IF NOT EXISTS prompt_snapshots (
+    session_id    TEXT NOT NULL,
+    scope         TEXT NOT NULL,
+    path          TEXT NOT NULL,
+    sha256        TEXT NOT NULL,
+    line_count    INTEGER NOT NULL DEFAULT 0,
+    managed_block INTEGER NOT NULL DEFAULT 0,
+    content       TEXT NOT NULL DEFAULT '',
+    captured_at   REAL NOT NULL,
+    PRIMARY KEY (session_id, scope)
+);
+
+CREATE TABLE IF NOT EXISTS prompts (
+    prompt_id   TEXT PRIMARY KEY,
+    session_id  TEXT NOT NULL,
+    flow_id     TEXT NOT NULL DEFAULT '',
+    task_id     TEXT,
+    seq         INTEGER NOT NULL DEFAULT 0,
+    text        TEXT NOT NULL DEFAULT '',
+    created_at  REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_prompts_session ON prompts(session_id);
 
 CREATE TABLE IF NOT EXISTS reconstruct_state (
     session_id        TEXT PRIMARY KEY,
@@ -288,6 +395,11 @@ class SQLiteStore(StorageBackend):
         cols = {row["name"] for row in self._conn.execute("PRAGMA table_info(steps)")}
         if "observed" not in cols:
             self._conn.execute("ALTER TABLE steps ADD COLUMN observed INTEGER NOT NULL DEFAULT 1")
+        # ②-lite: per-step harness attribution (which invariant/criterion fired and why).
+        if "layer1_detail" not in cols:
+            self._conn.execute("ALTER TABLE steps ADD COLUMN layer1_detail TEXT NOT NULL DEFAULT ''")
+        if "layer2_verdicts" not in cols:
+            self._conn.execute("ALTER TABLE steps ADD COLUMN layer2_verdicts TEXT NOT NULL DEFAULT ''")
 
     # -- sessions -------------------------------------------------------- #
     def upsert_session(self, session: Session) -> None:
@@ -331,12 +443,14 @@ class SQLiteStore(StorageBackend):
         self._conn.execute(
             """INSERT INTO steps(step_id, session_id, flow_id, task_id, task_category,
                    tool_name, input_summary, output_summary, success, latency_ms,
-                   retry_count, layer1_passed, layer2_score, observed, timestamp)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   retry_count, layer1_passed, layer2_score, layer1_detail, layer2_verdicts,
+                   observed, timestamp)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (step.step_id, step.session_id, step.flow_id, step.task_id, step.task_category,
              step.tool_name, step.input_summary, step.output_summary,
              _int(step.success), step.latency_ms, step.retry_count,
-             _int(step.layer1_passed), step.layer2_score, _int(step.observed), step.timestamp),
+             _int(step.layer1_passed), step.layer2_score, step.layer1_detail, step.layer2_verdicts,
+             _int(step.observed), step.timestamp),
         )
         self._conn.commit()
         return step
@@ -345,10 +459,12 @@ class SQLiteStore(StorageBackend):
         self._conn.execute(
             """UPDATE steps SET task_category=?, tool_name=?, input_summary=?,
                    output_summary=?, success=?, latency_ms=?, retry_count=?,
-                   layer1_passed=?, layer2_score=?, observed=? WHERE step_id=?""",
+                   layer1_passed=?, layer2_score=?, layer1_detail=?, layer2_verdicts=?,
+                   observed=? WHERE step_id=?""",
             (step.task_category, step.tool_name, step.input_summary, step.output_summary,
              _int(step.success), step.latency_ms, step.retry_count,
-             _int(step.layer1_passed), step.layer2_score, _int(step.observed), step.step_id),
+             _int(step.layer1_passed), step.layer2_score, step.layer1_detail, step.layer2_verdicts,
+             _int(step.observed), step.step_id),
         )
         self._conn.commit()
 
@@ -379,6 +495,8 @@ class SQLiteStore(StorageBackend):
             input_summary=row["input_summary"], output_summary=row["output_summary"],
             success=_b(row["success"]), latency_ms=row["latency_ms"], retry_count=row["retry_count"],
             layer1_passed=_b(row["layer1_passed"]), layer2_score=row["layer2_score"],
+            layer1_detail=row["layer1_detail"] if "layer1_detail" in row.keys() else "",
+            layer2_verdicts=row["layer2_verdicts"] if "layer2_verdicts" in row.keys() else "",
             observed=_b(row["observed"]) if "observed" in row.keys() else True,
             timestamp=row["timestamp"],
         )
@@ -507,6 +625,76 @@ class SQLiteStore(StorageBackend):
                 human_label=r["human_label"], agreement=_b(r["agreement"]), reviewed_at=r["reviewed_at"],
             )
             for r in self._conn.execute(sql)
+        ]
+
+    # -- prompt snapshots ------------------------------------------------ #
+    def add_prompt_snapshot(self, snap: PromptSnapshot) -> PromptSnapshot:
+        self._conn.execute(
+            """INSERT INTO prompt_snapshots(session_id, scope, path, sha256, line_count,
+                   managed_block, content, captured_at)
+               VALUES(?,?,?,?,?,?,?,?)
+               ON CONFLICT(session_id, scope) DO UPDATE SET
+                 path=excluded.path, sha256=excluded.sha256, line_count=excluded.line_count,
+                 managed_block=excluded.managed_block, content=excluded.content,
+                 captured_at=excluded.captured_at""",
+            (snap.session_id, snap.scope, snap.path, snap.sha256, snap.line_count,
+             _int(snap.managed_block), snap.content, snap.captured_at),
+        )
+        self._conn.commit()
+        return snap
+
+    def prompt_snapshots_for_session(self, session_id: str) -> list[PromptSnapshot]:
+        return [
+            PromptSnapshot(
+                session_id=r["session_id"], scope=r["scope"], path=r["path"], sha256=r["sha256"],
+                line_count=r["line_count"], managed_block=bool(r["managed_block"]),
+                content=r["content"], captured_at=r["captured_at"],
+            )
+            for r in self._conn.execute(
+                "SELECT * FROM prompt_snapshots WHERE session_id=? ORDER BY scope", (session_id,)
+            )
+        ]
+
+    # -- prompts (user requests) ---------------------------------------- #
+    def add_prompt(self, prompt: "Prompt") -> "Prompt":
+        # Assign a monotonic per-session sequence so requests render in submission order even
+        # when two prompts land in the same wall-clock instant.
+        row = self._conn.execute(
+            "SELECT COALESCE(MAX(seq), 0) + 1 FROM prompts WHERE session_id=?", (prompt.session_id,)
+        ).fetchone()
+        prompt.seq = int(row[0])
+        self._conn.execute(
+            """INSERT INTO prompts(prompt_id, session_id, flow_id, task_id, seq, text, created_at)
+               VALUES(?,?,?,?,?,?,?)""",
+            (prompt.prompt_id, prompt.session_id, prompt.flow_id, prompt.task_id,
+             prompt.seq, prompt.text, prompt.created_at),
+        )
+        self._conn.commit()
+        return prompt
+
+    def link_latest_prompt_to_task(self, session_id: str, task_id: str) -> None:
+        # The most recent still-unlinked prompt is the one whose first tool call just opened
+        # this Task; bind them so the GUI can show each Task's originating request.
+        self._conn.execute(
+            """UPDATE prompts SET task_id=?
+               WHERE prompt_id = (
+                   SELECT prompt_id FROM prompts
+                   WHERE session_id=? AND task_id IS NULL
+                   ORDER BY seq DESC LIMIT 1
+               )""",
+            (task_id, session_id),
+        )
+        self._conn.commit()
+
+    def prompts_for_session(self, session_id: str) -> list["Prompt"]:
+        return [
+            Prompt(
+                prompt_id=r["prompt_id"], session_id=r["session_id"], flow_id=r["flow_id"],
+                task_id=r["task_id"], seq=r["seq"], text=r["text"], created_at=r["created_at"],
+            )
+            for r in self._conn.execute(
+                "SELECT * FROM prompts WHERE session_id=? ORDER BY seq ASC", (session_id,)
+            )
         ]
 
     # -- reconstruction cursor ------------------------------------------ #

@@ -30,6 +30,16 @@ layer3:
   latency_multiplier: 3.0
   failure_count_trigger: 3
   quality_threshold: 0.85
+# Optional: per-project/session policy scopes layered over the global base above. Each scope
+# can pin a mode, tighten Layer 3, and *add* Layer 1/2 rules (it can only tighten, never remove
+# a global rule). The most specific match wins (exact session_id, else longest cwd_prefix).
+# scopes:
+#   - name: payments
+#     match: { cwd_prefix: "/Users/me/work/payments" }
+#     mode: enforce                 # this project always enforces, even when the daemon is observe
+#     layer3: { retry_threshold: 1, quality_threshold: 0.95 }
+#     add_invariants:
+#       - "프로덕션 DB에 직접 DELETE를 실행하지 않는다"
 """
 
 

@@ -118,11 +118,27 @@ def _skill_detail(skills_dir: Path) -> str:
 
 
 def _command_detail(commands_dir: Path) -> str:
-    files = sorted(
-        p.name for p in commands_dir.iterdir()
-        if p.is_file() and p.suffix in (".md", ".markdown")
-    )
+    return _files_detail(commands_dir, (".md", ".markdown"))
+
+
+def _files_detail(directory: Path, suffixes: tuple[str, ...]) -> str:
+    try:
+        files = sorted(p.name for p in directory.iterdir() if p.is_file() and p.suffix in suffixes)
+    except OSError:
+        return ""
     return f"{len(files)} 개: {', '.join(files)}" if files else "0 개"
+
+
+def _mcp_servers_count(settings_path: Path) -> int:
+    """Number of MCP servers declared in a platform settings file (``mcpServers`` table)."""
+    from .hooks.install import loads_jsonc
+
+    try:
+        data = loads_jsonc(settings_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0
+    servers = data.get("mcpServers") if isinstance(data, dict) else None
+    return len(servers) if isinstance(servers, dict) else 0
 
 
 def _line_detail(path: Path) -> str:
@@ -224,6 +240,39 @@ def inspect_project(
                 component="commands", kind="프롬프트/커맨드", scope=scope, path=commands_dir,
                 exists=True, editable=False, detail=_command_detail(commands_dir),
             ))
+
+        # Workflows (.claude/workflows/**) — multi-agent orchestration scripts the harness runs.
+        workflows_dir = config_dir / "workflows"
+        if workflows_dir.is_dir():
+            components.append(HarnessComponent(
+                component="workflows", kind="워크플로우", scope=scope, path=workflows_dir,
+                exists=True, editable=False, detail=_files_detail(workflows_dir, (".md", ".markdown", ".js")),
+            ))
+
+        # MCP: a standalone `.mcp.json` (project-level) and the `mcpServers` table in the
+        # platform settings file. Both shape which external tools the agent can reach.
+        mcp_json = root / ".mcp.json"
+        if mcp_json.exists():
+            components.append(HarnessComponent(
+                component="mcp", kind="MCP(.mcp.json)", scope=scope, path=mcp_json,
+                exists=True, editable=False,
+            ))
+        settings_file = config_dir / settings_name
+        server_count = _mcp_servers_count(settings_file) if settings_file.exists() else 0
+        if server_count:
+            components.append(HarnessComponent(
+                component="mcp", kind="MCP(mcpServers)", scope=scope, path=settings_file,
+                exists=True, editable=False, detail=f"{server_count} 개 서버",
+            ))
+
+    # Cursor project rules are editor-agnostic project scaffolding (not under .claude/.codex),
+    # so scan them once at the project root regardless of the detected hooked platform.
+    cursor_rules = project_root / ".cursor" / "rules"
+    if cursor_rules.is_dir():
+        components.append(HarnessComponent(
+            component="cursor_rules", kind="Cursor 규칙", scope="프로젝트", path=cursor_rules,
+            exists=True, editable=False, detail=_files_detail(cursor_rules, (".mdc", ".md")),
+        ))
 
     reconstructor_cls = CodexReconstructor if platform.name == "codex" else Reconstructor
 

@@ -26,11 +26,12 @@ from .criteria.layer import CriteriaViolation
 from .decision import DecisionVerifier, VerifyResult
 from .detector import detect
 from .experience import ExperienceCorpus
+from .harness_usage import declared_references, detect_usage
 from .hooks.install import loads_jsonc
 from .judge import JudgeMonitor, JudgeStatus
 from .llm import LLMClient, LLMUnavailable, default_client
 from .reconstructor import CodexReconstructor, Reconstructor
-from .store import EvolutionCandidate, JudgeSample, SQLiteStore, Step
+from .store import EvolutionCandidate, JudgeSample, SQLiteStore, Step, default_db_path
 
 
 class LensService:
@@ -38,7 +39,9 @@ class LensService:
         self.root = root or home_dir()
         self.root.mkdir(parents=True, exist_ok=True)
         self.criteria_path = self.root / "criteria.yaml"
-        self.store = SQLiteStore(self.root / "ledger.db")
+        # Route through default_db_path so a daemon-owned ledger.db (new Flow/Task/Step schema)
+        # is never opened by this observe-only store — it falls back to ledger.legacy.db instead.
+        self.store = SQLiteStore(default_db_path(self.root))
         self.criteria = ThreeLayerCriteria.load(self.criteria_path)
         self._llm = llm
         self.experience = ExperienceCorpus(self.store, self.criteria.qa)
@@ -104,12 +107,26 @@ class LensService:
     def _flow_tree(self, session_id: str) -> dict:
         session = self.store.get_session(session_id)
         steps = self.store.steps_for_session(session_id)
+        # The user requests (prompts) that opened this Flow's Tasks. Recorded durably by the
+        # reconstructor (the cursor only holds the latest), so the GUI can show "what was asked"
+        # per Flow and per Task — otherwise the request text is lost once steps are rebuilt.
+        prompts = self.store.prompts_for_session(session_id)
+        request_by_task = {p.task_id: p.text for p in prompts if p.task_id}
         tasks: dict[str, dict] = {}
+        # Where user-authored harness components (skills/commands/instruction files/MCP) are
+        # exercised in this Flow — recovered per step, also rolled up to a flow-level summary.
+        flow_used: dict[tuple, int] = {}
         for step in steps:
             task = tasks.setdefault(step.task_id, {
                 "task_id": step.task_id, "category": step.task_category, "steps": [],
+                "request": request_by_task.get(step.task_id),
             })
-            task["steps"].append(asdict(step))
+            sd = asdict(step)
+            usage = detect_usage(step.tool_name, step.input_summary, step.output_summary)
+            sd["harness_usage"] = [{"kind": u.kind, "name": u.name} for u in usage]
+            for u in usage:
+                flow_used[(u.kind, u.name)] = flow_used.get((u.kind, u.name), 0) + 1
+            task["steps"].append(sd)
         scored = [s.layer2_score for s in steps if s.layer2_score is not None]
         gap_count = sum(1 for s in steps if s.observed is False)
         # Per-flow 3-Layer monitoring (design §3): Layer 1 surfaces deterministic invariant
@@ -118,6 +135,34 @@ class LensService:
         # flow's reported status matches what actually trips evolution — not a parallel heuristic.
         layer1_failed = sum(1 for s in steps if s.layer1_passed is False)
         layer3_triggers = [p["pattern_id"] for p in self.criteria.qa.find_failure_patterns(steps)]
+        # Declared-vs-fired (design): for each skill/command actually exercised in this Flow,
+        # statically parse its own prompt file for the prompts it *declares* it will use, then mark
+        # which of those also fired somewhere in this Flow. Answers "this Skill referenced A·B·C;
+        # A and C actually ran, B did not" — the closest observable form of "which prompt a Skill
+        # referenced to operate" (per-token influence stays unobservable through hooks).
+        fired_names = {n for (_k, n) in flow_used}
+        reference_graph = []
+        for (kind, name) in flow_used:
+            decl = declared_references(kind, name)
+            if decl is None or not decl["references"]:
+                continue
+            reference_graph.append({
+                "kind": kind,
+                "name": name,
+                "path": decl["path"],
+                "references": [
+                    {"kind": u.kind, "name": u.name, "fired": u.name in fired_names}
+                    for u in decl["references"]
+                ],
+            })
+        # System-prompt provenance: the instruction file(s) snapshotted at this Flow's start.
+        snapshots = [
+            {
+                "scope": s.scope, "path": s.path, "sha256": s.sha256,
+                "line_count": s.line_count, "managed_block": s.managed_block, "content": s.content,
+            }
+            for s in self.store.prompt_snapshots_for_session(session_id)
+        ]
         return {
             "session_id": session_id,
             "platform": session.platform if session else "",
@@ -128,6 +173,16 @@ class LensService:
             "layer3_triggers": layer3_triggers,
             "gap_count": gap_count,
             "gap_ratio": (gap_count / len(steps)) if steps else 0.0,
+            "requests": [
+                {"seq": p.seq, "text": p.text, "task_id": p.task_id, "created_at": p.created_at}
+                for p in prompts
+            ],
+            "system_prompt": snapshots,
+            "reference_graph": reference_graph,
+            "harness_used": [
+                {"kind": k, "name": n, "count": c}
+                for (k, n), c in sorted(flow_used.items(), key=lambda kv: -kv[1])
+            ],
             "tasks": list(tasks.values()),
         }
 
@@ -212,6 +267,8 @@ class LensService:
 
     def layers_view(self) -> dict:
         """The 3-Layer criteria currently enforced, as plain data for display."""
+        from .criteria import load_scopes
+
         return {
             "invariants": list(self.criteria.invariants),
             "domain_criteria": [
@@ -219,6 +276,11 @@ class LensService:
                 for dc in self.criteria.domain_criteria
             ],
             "layer3": self.criteria.qa.config.as_dict(),
+            "scopes": [
+                {"name": s.name, "cwd_prefix": s.cwd_prefix, "session_id": s.session_id,
+                 "mode": s.mode, "add_invariants": s.add_invariants, "layer3": s.layer3}
+                for s in load_scopes(self.criteria_path)
+            ],
         }
 
     def update_layer3(self, params: dict) -> dict:
@@ -231,6 +293,86 @@ class LensService:
         """
         self._apply_layer3_params(params)
         return self.criteria.qa.config.as_dict()
+
+    # -- human (harness-owner) edits of Layer 1 / Layer 2 ---------------- #
+    # These are explicit owner edits from the GUI, NOT AHE auto-evolution. The CriteriaGuard
+    # still blocks the autonomous evolver from touching Layer 1/2 (assert_evolvable_layer keeps
+    # the auto-loop on Layer 3 only); a human editing their own criteria.yaml is a different
+    # actor, so these write the file directly — backed up and re-enforced like any other edit.
+    def update_invariants(self, invariants: list) -> dict:
+        """Replace the Layer-1 invariant list with the user-supplied one and re-enforce.
+
+        Empty/whitespace entries are dropped and duplicates collapsed (order preserved). An empty
+        result is allowed — removing every invariant is the owner's call once they unlock Layer 1.
+        """
+        seen: set[str] = set()
+        cleaned: list[str] = []
+        for item in invariants:
+            text = str(item).strip()
+            if text and text not in seen:
+                seen.add(text)
+                cleaned.append(text)
+        data = self._load_criteria_doc()
+        data["invariants"] = cleaned
+        self._write_criteria(data)
+        return self.layers_view()
+
+    def update_domain_criteria(self, criteria: list) -> dict:
+        """Replace the Layer-2 domain criteria (add / edit / remove / reweight) and re-enforce.
+
+        Each entry needs a non-empty description; a missing/blank/duplicate id is auto-assigned
+        (``DC-00N``). ``judge_prompt`` is preserved from the prior entry of the same id when the
+        edit omits it, and a sensible default is synthesised for a brand-new criterion so the
+        Layer-2 Judge has a prompt to score against. A blank-description entry is skipped.
+        """
+        data = self._load_criteria_doc()
+        prior = {
+            str(d.get("id")): d
+            for d in data.get("domain_criteria", []) if isinstance(d, dict)
+        }
+        out: list[dict] = []
+        used: set[str] = set()
+        for item in criteria:
+            if not isinstance(item, dict):
+                continue
+            description = str(item.get("description", "")).strip()
+            if not description:
+                continue
+            cid = str(item.get("id") or "").strip()
+            if not cid or cid in used:
+                cid = self._next_dc_id(used | set(prior))
+            used.add(cid)
+            try:
+                weight = float(item.get("weight", 1.0))
+            except (TypeError, ValueError):
+                weight = 1.0
+            weight = max(weight, 0.0)
+            judge_prompt = str(item.get("judge_prompt") or "").strip()
+            if not judge_prompt:
+                judge_prompt = str(prior.get(cid, {}).get("judge_prompt") or "").strip()
+            if not judge_prompt:
+                judge_prompt = self._default_judge_prompt(description)
+            out.append({
+                "id": cid, "description": description,
+                "judge_prompt": judge_prompt, "weight": weight,
+            })
+        data["domain_criteria"] = out
+        self._write_criteria(data)
+        return self.layers_view()
+
+    @staticmethod
+    def _default_judge_prompt(description: str) -> str:
+        return (
+            f"이 단계가 다음 기준을 지켰는지 판단하라: {description}\n"
+            'JSON: {"pass": true/false, "reason": "이유"}'
+        )
+
+    @staticmethod
+    def _next_dc_id(taken: set) -> str:
+        n = 1
+        while f"DC-{n:03d}" in taken:
+            n += 1
+        return f"DC-{n:03d}"
 
     @staticmethod
     def _has_project_signal(project_root: Path, platform) -> bool:
@@ -657,16 +799,28 @@ class LensService:
             valid[key] = coerced
         if not valid:
             raise ComponentError("no recognised, coercible Layer-3 parameters in proposed change")
-        # Seed from the same default the service loads when no file exists, otherwise the
-        # first qa.py apply on a fresh install writes a layer3-only file and the next reload
-        # silently drops the default invariants and domain criteria.
-        source = self.criteria_path.read_text(encoding="utf-8") if self.criteria_path.exists() else DEFAULT_CRITERIA_YAML
-        data = yaml.safe_load(source) or {}
+        data = self._load_criteria_doc()
         layer3 = data.setdefault("layer3", {})
         layer3.update(valid)
+        return self._write_criteria(data)
+
+    def _load_criteria_doc(self) -> dict:
+        # Seed from the same default the service loads when no file exists, otherwise the first
+        # apply on a fresh install writes a partial file and the next reload silently drops the
+        # default invariants / domain criteria / thresholds the other layers still rely on.
+        source = self.criteria_path.read_text(encoding="utf-8") if self.criteria_path.exists() else DEFAULT_CRITERIA_YAML
+        return yaml.safe_load(source) or {}
+
+    def _write_criteria(self, data: dict) -> AppliedEdit:
+        """Persist a full criteria.yaml document (backed up), reload, and re-enforce.
+
+        Shared by the Layer-3 evolution/override path and the human Layer-1/2 edit path:
+        criteria.yaml is the ``qa.py``-managed component, so the same backup/rollback machinery
+        and the re-enforcement of the managed instruction block apply to every layer's write.
+        """
         new_yaml = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
         edit = self.components.apply("qa.py", self.criteria_path, new_yaml)
-        self._reload_criteria()  # reload with new params
+        self._reload_criteria()  # reload with the new criteria
         self._resync_instruction_block()
         return edit
 
