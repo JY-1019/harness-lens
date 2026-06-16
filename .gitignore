@@ -17,8 +17,9 @@ env/
 .coverage
 htmlcov/
 
-# harness-lens runtime data
-.harness-lens/
+# harness-lens runtime data (but DO commit a repo's governance policy — policy-as-code)
+.harness-lens/*
+!.harness-lens/policy.yaml
 *.db
 *.sqlite3
 

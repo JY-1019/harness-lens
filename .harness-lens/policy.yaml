@@ -1,0 +1,38 @@
+# harness-lens — team governance, committed to the repo (policy-as-code).
+#
+# This file IS the project's 3-Layer harness. It is shared with everyone who clones the repo and
+# changed via PR (CODEOWNERS / branch protection), so governance is versioned and reviewed instead
+# of being wired up locally by each developer. The daemon auto-discovers it by walking up from a
+# session's cwd and applies it to ANY session inside this repo, layered on top of each developer's
+# personal ~/.harness-lens base (personal base → this repo policy → personal scope overlay).
+#
+# `mode` is intentionally omitted so it follows each developer's global mode (observe by default).
+# The local daemon is fast feedback, not the authoritative gate — the real enforcement boundary is
+# CI / server-side (a later phase). Edit this via a reviewed PR, not the live GUI.
+
+name: harness-lens-governance
+
+# Layer 1 — invariants (governance / safety). The secret + force-push wordings map to built-in
+# detectors, so they actually gate in enforce mode.
+invariants:
+  - "비밀키·토큰·크리덴셜을 코드에 하드코딩하지 않는다"
+  - "force-push 로 보호 브랜치 히스토리를 덮어쓰지 않는다 (--force-with-lease 사용)"
+
+# Layer 2 — domain criteria (process / behaviour). read-before-edit, test-before-change and
+# no-skip-verify are detector-backed structural checks; value-level wording stays Judge-advisory.
+domain_criteria:
+  - id: HL-001
+    description: "파일 수정 전 현재 내용을 먼저 읽는다 (read-before-edit)"
+    weight: 1.5
+  - id: HL-002
+    description: "동작을 바꾸는 변경은 회귀 테스트를 동반한다 (커밋·배포 전 테스트)"
+    weight: 1.5
+  - id: HL-003
+    description: "CI 검증을 우회하지 않는다 (--no-verify / skip ci 금지)"
+    weight: 1.0
+
+# Layer 3 — QA thresholds (monitoring + the enforce circuit breaker).
+layer3:
+  failure_count_trigger: 3
+  retry_threshold: 3
+  quality_threshold: 0.85

@@ -222,7 +222,9 @@ _PAGE = r"""<!DOCTYPE html>
   .hp-title:hover { text-decoration:underline; }
   .prov { font-size:.66rem; border-radius:4px; padding:.02rem .3rem; border:1px solid var(--line); white-space:nowrap; }
   .prov.proj { color:var(--blue); border-color:var(--blue); }
+  .prov.repo { color:#8b5cf6; border-color:#8b5cf6; font-weight:600; }
   .prov.glob { opacity:.55; }
+  .chip.repo { border-color:#8b5cf6; color:#8b5cf6; }
   /* per-step 3-Layer badges — click to inspect that layer */
   .lyrbadges { display:inline-flex; gap:.18rem; }
   .lyr { font-size:.6rem; line-height:1.5; border:1px solid var(--line); border-radius:3px; padding:0 .25rem; opacity:.38; cursor:pointer; }
@@ -718,6 +720,13 @@ function renderHarnessPanel(f) {
     head.append(el("span","chip","L1 "+f.harness.invariants_count),
       el("span","chip","L2 "+f.harness.domain_criteria_count));
     const l3 = l3Summary(f.harness.layer3); if (l3) head.append(el("span","chip",l3));
+    // Repo-committed governance (.harness-lens/policy.yaml) is in effect for this project.
+    if (f.harness.repo_policy_name) {
+      const rc = el("span","chip repo", "📦 repo 정책: " + f.harness.repo_policy_name
+        + " (L1 " + (f.harness.repo_invariants_count||0) + "·L2 " + (f.harness.repo_domain_criteria_count||0) + ")");
+      rc.title = "이 repo 의 .harness-lens/policy.yaml — git 으로 팀과 공유되는 거버넌스 (PR 로 편집)";
+      head.append(rc);
+    }
   }
   // L3 threshold breach (run-level; L3 never blocks a step, so surface WHICH limit was crossed).
   const l3s = f.l3_status;
@@ -756,37 +765,46 @@ async function loadEffectiveInto(body, f) {
     state.effective[f.flow_id] = e;
   }
   body.replaceChildren();
-  const sc = e.scope || null;
+  const sc = e.scope || null, rp = e.repo_policy || null;
   body.append(el("div","muted", "적용 하네스: " + (e.scope_name||"global") + " · mode: " + (e.mode||"?")
-    + (sc ? "  (전역 기본 + 이 프로젝트 규칙)" : "  (전역 기본만 적용)")));
-  // Provenance tags so it is clear which rule came from the global base vs this project's scope.
+    + (rp ? "  · 📦 repo 정책: " + (rp.name||"repo") : "") + (sc ? "  · 이 프로젝트 규칙" : "")));
+  // Three-way provenance: a rule comes from the global base, the repo-committed governance policy,
+  // or this developer's personal project scope.
   const addInv = new Set((sc && sc.add_invariants) || []);
   const addDc = new Set(((sc && sc.add_domain_criteria) || []).flatMap(d => [d.id, d.description]));
   const l3over = new Set(Object.keys((sc && sc.layer3) || {}));
+  const repoInv = new Set((rp && rp.add_invariants) || []);
+  const repoDc = new Set(((rp && rp.add_domain_criteria) || []).flatMap(d => [d.id, d.description]));
+  const repoL3 = new Set(Object.keys((rp && rp.layer3) || {}));
   // Which rules actually fired somewhere in THIS flow → badge them so a long L1/L2 list shows at a
   // glance which constraints tripped (the answer to "which of the 30 did the harness catch?").
   const firedIn = (layer) => new Set(Object.values(state.steps)
     .filter(st => st.flow_id === f.flow_id && st.decision_layer === layer && st.decision_criterion)
     .map(st => st.decision_criterion));
   const firedInv = firedIn(1), firedDc = firedIn(2);
-  const tag = (isProj) => el("span", "prov " + (isProj ? "proj" : "glob"), isProj ? "이 프로젝트" : "전역");
-  const row = (isProj, text, hit) => {
-    const it = el("div","it" + (hit ? " fired warn" : "")); it.append(tag(isProj), document.createTextNode(" " + text));
+  const PROV = { repo:["repo","📦 repo"], proj:["proj","이 프로젝트"], glob:["glob","전역"] };
+  const tag = (src) => { const m = PROV[src]; return el("span", "prov " + m[0], m[1]); };
+  const row = (src, text, hit) => {
+    const it = el("div","it" + (hit ? " fired warn" : "")); it.append(tag(src), document.createTextNode(" " + text));
     if (hit) it.append(el("span","firedtag", " ⏸ 이 세션에서 걸림"));
     return it;
   };
+  const invSrc = (r) => repoInv.has(r) ? "repo" : (addInv.has(r) ? "proj" : "glob");
+  const dcSrc = (dc) => (repoDc.has(dc.id)||repoDc.has(dc.description)) ? "repo"
+    : ((addDc.has(dc.id)||addDc.has(dc.description)) ? "proj" : "glob");
+  const l3Src = (k) => repoL3.has(k) ? "repo" : (l3over.has(k) ? "proj" : "glob");
 
   const l1 = el("div"); l1.append(el("h4",null,"Layer 1 — 절대 규칙 (안전·위반 금지)"));
-  if ((e.invariants||[]).length) e.invariants.forEach(r => l1.append(row(addInv.has(r), r, firedInv.has(r))));
+  if ((e.invariants||[]).length) e.invariants.forEach(r => l1.append(row(invSrc(r), r, firedInv.has(r))));
   else l1.append(el("div","it muted","(없음)"));
   const l2 = el("div"); l2.append(el("h4",null,"Layer 2 — 행동 기준 (매 단계 품질 심사)"));
   if ((e.domain_criteria||[]).length) e.domain_criteria.forEach(dc =>
-    l2.append(row(addDc.has(dc.id) || addDc.has(dc.description),
+    l2.append(row(dcSrc(dc),
       (dc.description||dc.id||"") + (dc.weight!=null ? " (w"+dc.weight+")" : ""), firedDc.has(dc.id))));
   else l2.append(el("div","it muted","(없음)"));
   const l3 = el("div"); l3.append(el("h4",null,"Layer 3 — 품질 한계선 (자동 임계값)"));
-  Object.entries(e.layer3||{}).forEach(([k,v]) =>
-    l3.append(row(l3over.has(k), k + ": " + v + (l3over.has(k) ? "  (이 프로젝트 오버라이드)" : ""))));
+  Object.entries(e.layer3||{}).forEach(([k,v]) => { const s = l3Src(k);
+    l3.append(row(s, k + ": " + v + (s !== "glob" ? "  (" + PROV[s][1] + " 오버라이드)" : ""))); });
   body.append(l1, l2, l3);
 }
 

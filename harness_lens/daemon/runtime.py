@@ -24,8 +24,8 @@ import yaml
 from .. import home_dir
 from ..components import ComponentManager
 from ..criteria import (
-    DEFAULT_CRITERIA_YAML, ThreeLayerCriteria, apply_scope, load_scopes, parse_scopes,
-    resolve_scope, scope_to_payload,
+    DEFAULT_CRITERIA_YAML, ThreeLayerCriteria, apply_scope, find_repo_policy, load_repo_policy,
+    load_scopes, parse_scopes, resolve_scope, scope_to_payload,
 )
 from .adapters import get_adapter
 from .approvals import APPROVED, DENIED, TIMEOUT, ApprovalQueue
@@ -93,6 +93,9 @@ class DaemonRuntime:
         # fallback for sessions that match no scope.
         self.scopes = load_scopes(self.criteria_path)
         self._scope_policies: dict[str, PolicyEngine] = {}
+        # Repo-committed governance (.harness-lens/policy.yaml) discovered per project, cached by
+        # path → (mtime, Scope) so an edit (e.g. after a git pull) hot-reloads without a restart.
+        self._repo_cache: dict[str, tuple[float, "object"]] = {}
         self.approvals = ApprovalQueue()
         self.bus = EventBus()
         self.writer = LedgerWriter()
@@ -158,6 +161,7 @@ class DaemonRuntime:
         self.policy = PolicyEngine(self.criteria, self.criteria_path)
         self.scopes = load_scopes(self.criteria_path)
         self._scope_policies.clear()  # rebuilt lazily against the reloaded base/scopes
+        self._repo_cache.clear()      # repo policies re-discovered/re-read lazily too
 
     # -- scope editing (GUI/API) ----------------------------------------- #
     def scopes_payload(self) -> list[dict]:
@@ -262,12 +266,17 @@ class DaemonRuntime:
             if flow is not None:
                 cwd = cwd or flow.cwd
                 session_id = session_id or flow.flow_id
+        repo_scope, _ = self._repo_scope_for(cwd)
         scope = resolve_scope(self.scopes, cwd, session_id)
-        effective = apply_scope(self.criteria, scope)
+        # personal base → repo governance → personal scope overlay (apply_scope is pure + additive).
+        effective = apply_scope(apply_scope(self.criteria, repo_scope), scope)
         out = self._criteria_payload(effective)
         out["scope"] = scope_to_payload(scope) if scope else None
         out["scope_name"] = scope.name if scope else "global"
-        out["mode"] = (scope.mode or self.config.mode) if scope else self.config.mode
+        out["repo_policy"] = scope_to_payload(repo_scope) if repo_scope else None
+        out["mode"] = ((scope.mode if scope else None)
+                       or (repo_scope.mode if repo_scope else None)
+                       or self.config.mode)
         out["cwd"] = cwd
         out["session_id"] = session_id
         return out
@@ -276,15 +285,20 @@ class DaemonRuntime:
         """Compact Flow-card summary of the harness currently selected for a Flow."""
         effective = self.effective_criteria_payload(cwd=cwd, session_id=session_id)
         scope = effective.get("scope") or {}
+        repo = effective.get("repo_policy") or {}
         return {
             "scope_name": effective["scope_name"],
             "scope": effective.get("scope"),
+            "repo_policy": effective.get("repo_policy"),
+            "repo_policy_name": (repo.get("name") if repo else None),
             "mode": effective["mode"],
             "layer3": effective["layer3"],
             "invariants_count": len(effective["invariants"]),
             "domain_criteria_count": len(effective["domain_criteria"]),
             "added_invariants_count": len(scope.get("add_invariants") or []),
             "added_domain_criteria_count": len(scope.get("add_domain_criteria") or []),
+            "repo_invariants_count": len(repo.get("add_invariants") or []),
+            "repo_domain_criteria_count": len(repo.get("add_domain_criteria") or []),
         }
 
     def flow_payload(self, flow: Flow) -> dict:
@@ -403,29 +417,66 @@ class DaemonRuntime:
         self.bus.publish("criteria_changed", data=self.criteria_payload())
         return self.criteria_payload()
 
-    def _scope_for(self, event: HarnessEvent):
-        """The scope (if any) that applies to this event's project/session."""
+    def _cwd_of(self, event: HarnessEvent) -> Optional[str]:
         cwd = event.cwd
         if cwd is None:
             st = self._flows.get(event.session_id)
             cwd = st.cwd if st else None
-        return resolve_scope(self.scopes, cwd, event.session_id)
+        return cwd
+
+    def _scope_for(self, event: HarnessEvent):
+        """The personal-overlay scope (if any) that applies to this event's project/session."""
+        return resolve_scope(self.scopes, self._cwd_of(event), event.session_id)
+
+    def _repo_scope_for(self, cwd: Optional[str]) -> tuple["object", str]:
+        """The repo-committed governance scope for ``cwd`` plus a cache signature, or (None, "").
+
+        Discovered by walking up to ``.harness-lens/policy.yaml`` and cached by (path, mtime), so an
+        edit to the committed file is picked up without restarting the daemon."""
+        path = find_repo_policy(cwd)
+        if path is None:
+            return None, ""
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            return None, ""
+        key = str(path)
+        cached = self._repo_cache.get(key)
+        if cached is None or cached[0] != mtime:
+            scope = load_repo_policy(path)
+            self._repo_cache[key] = (mtime, scope)
+        else:
+            scope = cached[1]
+        return scope, (f"{key}:{mtime}" if scope is not None else "")
 
     def _effective_mode(self, event: HarnessEvent) -> str:
-        """The mode in force for this Flow — its scope's pin, else the global daemon mode."""
-        scope = self._scope_for(event)
-        return (scope.mode or self.config.mode) if scope else self.config.mode
+        """The mode in force for this Flow: personal scope pin > repo policy pin > global daemon mode."""
+        cwd = self._cwd_of(event)
+        repo_scope, _ = self._repo_scope_for(cwd)
+        scope = resolve_scope(self.scopes, cwd, event.session_id)
+        return ((scope.mode if scope else None)
+                or (repo_scope.mode if repo_scope else None)
+                or self.config.mode)
 
     def _policy_for(self, event: HarnessEvent) -> tuple["PolicyEngine", str]:
-        """Resolve the effective (engine, mode) for this event — its scope's, else the global base."""
-        scope = self._scope_for(event)
-        if scope is None:
+        """Resolve the effective (engine, mode): personal base → repo governance → personal scope."""
+        cwd = self._cwd_of(event)
+        repo_scope, repo_sig = self._repo_scope_for(cwd)
+        scope = resolve_scope(self.scopes, cwd, event.session_id)
+        if repo_scope is None and scope is None:
             return self.policy, self.config.mode
-        engine = self._scope_policies.get(scope.name)
+        key = repo_sig + "|" + (scope.name if scope else "")
+        engine = self._scope_policies.get(key)
         if engine is None:
-            engine = PolicyEngine(apply_scope(self.criteria, scope), self.criteria_path)
-            self._scope_policies[scope.name] = engine
-        return engine, (scope.mode or self.config.mode)
+            # apply_scope is pure + additive: layer the repo policy onto the base, then the personal
+            # scope on top, so a session inside a governed repo gets repo ∪ personal rules.
+            effective = apply_scope(apply_scope(self.criteria, repo_scope), scope)
+            engine = PolicyEngine(effective, self.criteria_path)
+            self._scope_policies[key] = engine
+        mode = ((scope.mode if scope else None)
+                or (repo_scope.mode if repo_scope else None)
+                or self.config.mode)
+        return engine, mode
 
     # -- main entry ------------------------------------------------------ #
     async def handle(self, source: str, payload: dict) -> dict:

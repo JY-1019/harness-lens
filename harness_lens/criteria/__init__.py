@@ -12,6 +12,7 @@ from .engine import CriteriaEngine
 from .invariant import InvariantChecker, InvariantViolation
 from .layer import CriteriaGuard, CriteriaViolation, ThreeLayerCriteria, DEFAULT_CRITERIA_YAML
 from .qa import QAConfig, QACriteria, layer3_in_range
+from .repo_policy import find_repo_policy, load_repo_policy, repo_root_of
 from .scope import Scope, apply_scope, load_scopes, parse_scopes, resolve_scope, scope_to_payload
 
 __all__ = [
@@ -21,4 +22,5 @@ __all__ = [
     "ThreeLayerCriteria", "CriteriaGuard", "CriteriaViolation",
     "CriteriaEngine", "DEFAULT_CRITERIA_YAML",
     "Scope", "load_scopes", "resolve_scope", "apply_scope", "parse_scopes", "scope_to_payload",
+    "find_repo_policy", "load_repo_policy", "repo_root_of",
 ]
