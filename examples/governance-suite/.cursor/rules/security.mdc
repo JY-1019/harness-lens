@@ -1,0 +1,9 @@
+---
+description: governance-suite security rule (demo)
+globs: ["**/*"]
+---
+
+- Never hardcode secrets or credentials.
+- Never log or export personal data (PAN, SSN).
+
+(Surfaced by the GUI as a `.cursor/rules` scaffolding component; Cursor itself is not tracked.)

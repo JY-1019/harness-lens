@@ -1,0 +1,10 @@
+---
+description: demo cursor rule for the enforce playground
+globs: ["**/*.py"]
+---
+
+- Keep functions small and pure.
+- Prefer explicit returns.
+
+(This rule file is here only so the monitoring GUI attributes a `.cursor/rules` scaffolding
+component to steps that touch it — Cursor itself is not a tracked runtime.)
