@@ -258,6 +258,20 @@ class DaemonLedger:
             row = self._conn.execute("SELECT * FROM flows WHERE flow_id=?", (flow_id,)).fetchone()
         return _flow(row) if row else None
 
+    def delete_flow(self, flow_id: str) -> bool:
+        """Remove a flow and everything beneath it (tasks, steps, approvals, events). An app-level
+        cascade because foreign_keys is OFF. Returns True if the flow existed."""
+        with self._lock:
+            if not self._conn.execute("SELECT 1 FROM flows WHERE flow_id=?", (flow_id,)).fetchone():
+                return False
+            self._conn.execute(
+                "DELETE FROM approvals WHERE step_id IN (SELECT step_id FROM steps WHERE flow_id=?)",
+                (flow_id,))
+            for table in ("steps", "tasks", "events", "flows"):
+                self._conn.execute(f"DELETE FROM {table} WHERE flow_id=?", (flow_id,))
+            self._conn.commit()
+        return True
+
     def list_flows(self, limit: int = 50, status: Optional[str] = None,
                    source: Optional[str] = None, has_cwd: bool = False) -> list[Flow]:
         sql = "SELECT * FROM flows"

@@ -164,6 +164,22 @@ def test_set_project_mode_requires_cwd_and_valid_mode(tmp_home, no_enforce):
         assert client.post("/api/projects/mode", headers=h, json={"cwd": "/x", "mode": "nope"}).status_code == 400
 
 
+def test_delete_flow_removes_flow_and_children(tmp_home):
+    from harness_lens.daemon.ledger import Step, Task
+    client, rt = _client(tmp_home)
+    h = {"X-HL-Token": rt.token}
+    rt.ledger.upsert_flow(Flow(flow_id="F", source="codex", status="completed", mode="observe", cwd="/repo/x"))
+    rt.ledger.upsert_task(Task(task_id="T", flow_id="F", kind="turn", status="completed", seq=0))
+    rt.ledger.upsert_step(Step(step_id="S", task_id="T", flow_id="F", tool_name="Bash", seq=0))
+    with client:
+        assert any(f["flow_id"] == "F" for f in client.get("/api/flows", headers=h).json())
+        r = client.delete("/api/flows/F", headers=h)
+        assert r.status_code == 200 and r.json()["deleted"] == "F"
+        assert not any(f["flow_id"] == "F" for f in client.get("/api/flows", headers=h).json())
+        assert rt.ledger.get_step("S") is None  # children cascaded
+        assert client.delete("/api/flows/F", headers=h).status_code == 404  # already gone
+
+
 def test_edit_rejects_out_of_range_layer3(tmp_home, no_enforce):
     client, rt = _client(tmp_home)
     with client:

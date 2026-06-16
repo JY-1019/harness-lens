@@ -183,6 +183,11 @@ _PAGE = r"""<!DOCTYPE html>
   .srctag.claude { background:#d97706; } .srctag.codex { background:#2563eb; }
   .sname { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .smeta { font-size:.75rem; color:var(--muted); }
+  /* delete-conversation button — hidden until the row is hovered */
+  .convdel { flex:none; border:0; background:transparent; color:var(--muted); padding:.1rem .2rem; line-height:0;
+             border-radius:5px; opacity:0; cursor:pointer; display:inline-grid; place-items:center; }
+  .sesshead:hover .convdel { opacity:.6; }
+  .convdel:hover { opacity:1; color:var(--red); background:color-mix(in srgb,var(--red) 14%, transparent); }
   /* conversation view — header once, then a collapsible section per turn (request) */
   .reqview { max-width:62rem; }
   .reqhead { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; margin-bottom:.3rem; }
@@ -432,7 +437,7 @@ async function loadSnapshot() {
   const st = await (await api("/api/status")).json();
   state.mode = st.mode; state.snapRev = st.rev || 0; renderMode();
   await loadScopes();
-  const flows = await (await api("/api/flows?limit=50&has_cwd=true")).json();
+  const flows = await (await api("/api/flows?limit=500&has_cwd=true")).json();
   for (const f of flows) state.flows[f.flow_id] = f;
   // Open the most recent session and select its latest request, so the page isn't empty.
   const recent = [...flows].filter(hasCwd).sort((a,b)=>(b.started_at||0)-(a.started_at||0))[0];
@@ -474,6 +479,13 @@ function applyPatch(m) {
     scheduleRender();
   } else if (m.op === "approval") {
     state.approvals[m.data.approval_id] = m.data; renderPending(); scheduleRender();
+  } else if (m.op === "delete" && m.entity === "flow") {
+    const id = m.data.flow_id;
+    delete state.flows[id]; state.loaded.delete(id); delete seenSidebar[id];
+    Object.values(state.tasks).forEach(t => { if (t.flow_id===id) delete state.tasks[t.task_id]; });
+    Object.values(state.steps).forEach(s => { if (s.flow_id===id) delete state.steps[s.step_id]; });
+    if (state.selFlow === id) state.selFlow = null;
+    renderSidebar(); renderCanvas();
   } else if (m.op === "mode_changed") {
     state.mode = m.data.mode; renderMode();
   } else if (m.op === "criteria_changed") {
@@ -516,6 +528,7 @@ function renderSidebar() {
 }
 // A clean monochrome folder glyph (inherits currentColor) — replaces the tacky 📁 emoji.
 const FOLDER_SVG = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5a2 2 0 0 1 2-2h3.6a2 2 0 0 1 1.4.6l1 1a2 2 0 0 0 1.4.6H19a2 2 0 0 1 2 2v7.2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+const TRASH_SVG = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/></svg>';
 function svgIcon(svg, cls){ const s = el("span", cls || "ico"); s.innerHTML = svg; return s; }
 function renderProject(g) {
   const open = state.expandedProjects.has(g.key);
@@ -561,7 +574,7 @@ async function setProjectMode(cwd, mode) {
   if (!r.ok) return;
   await loadScopes();
   // Refresh flow cards so each session's harness chip reflects the new project mode, then repaint.
-  const flows = await (await api("/api/flows?limit=50&has_cwd=true")).json();
+  const flows = await (await api("/api/flows?limit=500&has_cwd=true")).json();
   for (const f of flows) state.flows[f.flow_id] = { ...state.flows[f.flow_id], ...f };
   renderSidebar(); renderCanvas();
 }
@@ -584,9 +597,21 @@ function renderSession(f) {
   if (nturns) head.append(el("span","chip", nturns + "턴"));
   const dot = el("span","dot"); dot.style.background = statusColor(f.status);
   head.append(dot);
+  const del = el("span","convdel"); del.innerHTML = TRASH_SVG; del.title = "이 대화 삭제";
+  del.onclick = (ev) => { ev.stopPropagation(); deleteConversation(f); };
+  head.append(del);
   head.onclick = () => selectConversation(f.flow_id);
   item.append(head);
   return item;
+}
+async function deleteConversation(f) {
+  if (!confirm("이 대화를 삭제할까요?\n" + projName(f.cwd) + " · " + srcName(f) + " · " + relTime(f.started_at))) return;
+  const r = await api("/api/flows/" + encodeURIComponent(f.flow_id), { method:"DELETE" });
+  if (!r.ok) return;
+  // The WS 'delete' patch prunes state + re-renders; do it locally too for immediate feedback.
+  delete state.flows[f.flow_id]; state.loaded.delete(f.flow_id);
+  if (state.selFlow === f.flow_id) state.selFlow = null;
+  renderSidebar(); renderCanvas();
 }
 // Expand only the latest turn by default, so opening a long conversation isn't a wall of steps.
 function expandLatestTurn(flowId) {

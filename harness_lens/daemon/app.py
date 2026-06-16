@@ -165,6 +165,12 @@ def create_app(runtime: Optional[DaemonRuntime] = None, root: Optional[Path] = N
                                                source=source, has_cwd=has_cwd)
         ]
 
+    @app.delete("/api/flows/{flow_id}")
+    async def delete_flow(flow_id: str, _=Depends(auth)) -> dict:
+        if not runtime.delete_flow(flow_id):
+            raise HTTPException(status_code=404, detail="flow not found")
+        return {"deleted": flow_id}
+
     @app.get("/api/flows/{flow_id}/tree")
     async def flow_tree(flow_id: str, _=Depends(auth)) -> dict:
         tree = runtime.flow_tree_payload(flow_id)

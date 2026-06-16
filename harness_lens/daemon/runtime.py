@@ -195,6 +195,14 @@ class DaemonRuntime:
         self.bus.publish("criteria_changed", data=self.criteria_payload())
         return self.scopes_payload()
 
+    def delete_flow(self, flow_id: str) -> bool:
+        """Delete a conversation (flow + its tasks/steps/approvals/events) and notify the GUI."""
+        ok = self.ledger.delete_flow(flow_id)
+        self._flows.pop(flow_id, None)
+        if ok:
+            self.bus.publish("delete", "flow", {"flow_id": flow_id})
+        return ok
+
     def set_project_mode(self, cwd: str, mode: Optional[str]) -> dict:
         """Pin (or clear) observe/enforce for ONE project folder as an exact-cwd scope override.
 
