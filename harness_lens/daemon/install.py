@@ -162,8 +162,8 @@ def install_daemon(
     notices = []
     if source == "codex":
         notices.append(
-            "참고: Codex 는 escalate(ask)를 지원하지 않아 GUI 승인 대기 후 deny/allow 로 환원됩니다.\n"
-            "   또한 trusted 프로젝트에서만 hook 을 로드합니다."
+            "참고: Codex(≥0.139)는 Claude Code 와 동일한 hook 출력 스키마(permissionDecision)를 사용합니다.\n"
+            "   trusted 프로젝트에서만 hook 을 로드하므로 ~/.codex/config.toml 의 trust_level 을 확인하세요."
         )
     return DaemonInstallReport(
         platform=platform.label, mode=mode, settings_path=settings_path, runtime_dir=root,

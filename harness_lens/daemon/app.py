@@ -10,6 +10,9 @@ Endpoints (all loopback-only, token-authenticated):
 * ``POST /api/approvals/{id}``     — resolve one (approved/denied).
 * ``GET  /api/flows`` …            — Flow list / tree / step detail (the GUI read model).
 * ``POST /api/flows/{id}/abort``   — request a session abort.
+* ``GET  /api/criteria``           — the base 3-Layer harness (invariants / criteria / thresholds).
+* ``GET  /api/criteria/effective`` — the project/session-scoped harness after scope resolution.
+* ``POST /api/criteria/{layer}``   — human owner edit of layer1 / layer2 / layer3, then hot-reload.
 
 The token gate (``X-HL-Token`` or ``Authorization: Bearer``) plus loopback binding keep
 other local users off the control plane. The GUI/WebSocket surface is Phase 2; the REST
@@ -98,6 +101,30 @@ def create_app(runtime: Optional[DaemonRuntime] = None, root: Optional[Path] = N
             raise HTTPException(status_code=400, detail="scopes must be a list")
         return {"scopes": runtime.save_scopes(scopes)}
 
+    @app.get("/api/criteria")
+    async def get_criteria(_=Depends(auth)) -> dict:
+        return runtime.criteria_payload()
+
+    @app.get("/api/criteria/effective")
+    async def get_effective_criteria(
+        flow_id: Optional[str] = None,
+        cwd: Optional[str] = None,
+        session_id: Optional[str] = None,
+        _=Depends(auth),
+    ) -> dict:
+        return runtime.effective_criteria_payload(cwd=cwd, session_id=session_id, flow_id=flow_id)
+
+    @app.post("/api/criteria/{layer}")
+    async def edit_criteria(layer: str, body: dict, _=Depends(auth)) -> dict:
+        from ..components import ComponentError
+
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="expected a JSON object")
+        try:
+            return runtime.edit_criteria(layer, body)
+        except (ComponentError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
     @app.get("/api/approvals")
     async def approvals(_=Depends(auth)) -> list[dict]:
         from dataclasses import asdict
@@ -119,14 +146,17 @@ def create_app(runtime: Optional[DaemonRuntime] = None, root: Optional[Path] = N
 
     @app.get("/api/flows")
     async def flows(limit: int = 50, status: Optional[str] = None,
-                    source: Optional[str] = None, _=Depends(auth)) -> list[dict]:
-        from dataclasses import asdict
-
-        return [asdict(f) for f in runtime.ledger.list_flows(limit=limit, status=status, source=source)]
+                    source: Optional[str] = None, has_cwd: bool = False,
+                    _=Depends(auth)) -> list[dict]:
+        return [
+            runtime.flow_payload(f)
+            for f in runtime.ledger.list_flows(limit=limit, status=status,
+                                               source=source, has_cwd=has_cwd)
+        ]
 
     @app.get("/api/flows/{flow_id}/tree")
     async def flow_tree(flow_id: str, _=Depends(auth)) -> dict:
-        tree = runtime.ledger.flow_tree(flow_id)
+        tree = runtime.flow_tree_payload(flow_id)
         if tree is None:
             raise HTTPException(status_code=404, detail="flow not found")
         return tree
@@ -138,7 +168,22 @@ def create_app(runtime: Optional[DaemonRuntime] = None, root: Optional[Path] = N
         step = runtime.ledger.get_step(step_id)
         if step is None:
             raise HTTPException(status_code=404, detail="step not found")
-        return asdict(step)
+        data = asdict(step)
+        # Attribute against the FULL input/output (the tree only carries a truncated preview).
+        data["harness_usage"] = runtime.usage_for_step(step.tool_name, step.tool_input, step.tool_output)
+        return data
+
+    @app.get("/api/flows/{flow_id}/service_harness")
+    async def service_harness(flow_id: str, _=Depends(auth)) -> dict:
+        payload = runtime.service_harness_payload(flow_id)
+        if payload is None:
+            raise HTTPException(status_code=404, detail="flow not found")
+        return payload
+
+    @app.get("/api/harness/component")
+    async def harness_component(kind: str, name: str, cwd: Optional[str] = None,
+                                _=Depends(auth)) -> dict:
+        return runtime.component_prompt(kind, name, cwd)
 
     @app.post("/api/flows/{flow_id}/abort")
     async def abort_flow(flow_id: str, _=Depends(auth)) -> dict:

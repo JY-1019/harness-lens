@@ -123,6 +123,59 @@ def test_two_concurrent_sessions_distinct_flows(tmp_home):
     assert flows == {"A": "claude_code", "B": "codex"}
 
 
+def test_restart_resumes_open_turn_without_titleless_turn(tmp_home):
+    """A daemon restart mid-session must not spawn a titleless "(요청 미관측)" turn: the next
+    tool resumes the Flow's open turn (rehydrated from the ledger), keeping its prompt title."""
+    async def go():
+        rt = DaemonRuntime(root=tmp_home)
+        await rt.start()
+        await rt.handle("claude_code", _session_start("S"))
+        await rt.handle("claude_code", _user_prompt("S", "do the thing"))
+        await rt.handle("claude_code", _pre_tool("S", "Bash", {"command": "ls"}, "t1"))
+        await rt.stop()
+        # Simulate restart: a brand-new runtime over the same ledger, with NO session_start /
+        # user_prompt replay — exactly what an in-progress session looks like after a restart.
+        rt2 = DaemonRuntime(root=tmp_home)
+        await rt2.start()
+        await rt2.handle("claude_code", _pre_tool("S", "Read", {"file_path": "x"}, "t2"))
+        tree = rt2.ledger.flow_tree("S")
+        await rt2.stop()
+        return tree
+
+    tree = asyncio.run(go())
+    turns = [t for t in tree["tasks"] if t["kind"] == "turn"]
+    assert len(turns) == 1                      # resumed, not a second titleless turn
+    assert turns[0]["title"] == "do the thing"  # original prompt preserved
+    assert len(turns[0]["steps"]) == 2          # both tools landed on the one turn
+
+
+def test_conditional_l2_criterion_does_not_block_control_path(tmp_home):
+    """Branching harness sanity: a project scope (exact cwd) with a *conditional* natural-language
+    L2 criterion is applied to the effective harness, and the control path keeps working — such
+    criteria are scored by the async Judge, not gated in real time (only DC-001 gates edits)."""
+    async def go():
+        rt = DaemonRuntime(root=tmp_home)
+        await rt.start()
+        rt.save_scopes([{
+            "name": "pay", "match": {"cwd": "/repo/pay"}, "mode": "enforce",
+            "add_domain_criteria": [{"id": "X1", "description": "결제 코드 수정 시 docs 참고", "weight": 1}],
+        }])
+        ev = lambda **k: {"session_id": "P", "cwd": "/repo/pay", **k}
+        await rt.handle("claude_code", ev(hook_event_name="SessionStart"))
+        await rt.handle("claude_code", ev(hook_event_name="PreToolUse", tool_name="Read",
+                                          tool_input={"file_path": "/repo/pay/a.py"}, tool_use_id="r"))
+        resp = await rt.handle("claude_code", ev(hook_event_name="PreToolUse", tool_name="Edit",
+                                                 tool_input={"file_path": "/repo/pay/a.py"}, tool_use_id="e"))
+        eff = rt.effective_criteria_payload(cwd="/repo/pay", session_id="P")
+        await rt.stop()
+        return resp, eff
+
+    resp, eff = asyncio.run(go())
+    assert resp["hookSpecificOutput"]["permissionDecision"] == "allow"   # read-before-edit ok
+    assert eff["mode"] == "enforce"                                       # branch's mode applied
+    assert any(dc["id"] == "X1" for dc in eff["domain_criteria"])         # conditional criterion in force
+
+
 # --------------------------------------------------------------------------- #
 # FastAPI app
 # --------------------------------------------------------------------------- #

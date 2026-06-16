@@ -24,10 +24,15 @@ CAPABILITIES: dict[str, dict[str, bool]] = {
         "force_continue_on_stop": True,
     },
     "codex": {
+        # Codex CLI ≥ 0.139 shares Claude's hook-output *schema*, but its RUNTIME validator only
+        # honours PreToolUse permissionDecision "deny" (with a non-empty reason). It rejects
+        # permissionDecision "allow"/"ask" and updatedInput ("unsupported permissionDecision:allow").
+        # So: deny works; allow = empty output; there is no native ask (escalate collapses to deny);
+        # updatedInput is unusable. additionalContext + Stop "block" are fine.
         "deny": True,
         "allow": True,
-        "escalate": False,  # no native "ask"; the GUI still waits, then we return deny/allow
-        "update_tool_input": False,  # no updatedMCPToolOutput equivalent — never emit one
+        "escalate": False,  # no native "ask" at runtime; GUI approval still parks it, then deny/allow
+        "update_tool_input": False,  # updatedInput requires the unsupported permissionDecision:allow
         "inject_context": True,
         "force_continue_on_stop": True,
     },
@@ -53,6 +58,10 @@ class Decision:
     action: str = ALLOW
     layer: Optional[int] = None
     reason: str = ""
+    # The specific rule that decided: an L2 domain-criterion id ("DC-017"), the L1 invariant text,
+    # or an L3 threshold key ("failure_count_trigger"). Lets the GUI pinpoint *which* rule fired
+    # among dozens, rather than making the user parse it out of the reason string.
+    criterion_id: Optional[str] = None
     updated_input: Optional[dict] = None
     inject_context: Optional[str] = None
     # Set when this decision will park in the approval queue (escalate). Carried so the

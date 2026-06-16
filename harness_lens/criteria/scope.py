@@ -39,14 +39,18 @@ from .layer import ThreeLayerCriteria
 from .qa import QACriteria, QAConfig, layer3_in_range
 
 _MODES = ("observe", "enforce")
-# Beats any cwd_prefix length, so an exact session match always wins resolution.
+# Beats any cwd match, so an exact session match always wins resolution.
 _SESSION_MATCH_SCORE = 1_000_000
+# An exact-folder (cwd ==) match beats any prefix match, so a project's own harness wins over a
+# broader parent-folder prefix scope, but still loses to a per-session pin.
+_EXACT_CWD_SCORE = 500_000
 
 
 @dataclass
 class Scope:
     name: str
     cwd_prefix: Optional[str] = None
+    cwd: Optional[str] = None  # exact-folder match (cwd ==) — the per-project harness key
     session_id: Optional[str] = None
     mode: Optional[str] = None  # observe | enforce | None (inherit the global mode)
     add_invariants: list[str] = field(default_factory=list)
@@ -57,6 +61,8 @@ class Scope:
         """Specificity of this scope's match (higher = more specific), or -1 if it does not apply."""
         if self.session_id and session_id and self.session_id == session_id:
             return _SESSION_MATCH_SCORE
+        if self.cwd and cwd and _norm(self.cwd) == _norm(cwd):
+            return _EXACT_CWD_SCORE
         if self.cwd_prefix and cwd and _path_has_prefix(cwd, self.cwd_prefix):
             return len(_norm(self.cwd_prefix))
         return -1
@@ -96,20 +102,24 @@ def _scope_from_raw(raw, index: int) -> Optional[Scope]:
     if not isinstance(match, dict):
         match = {}
     cwd_prefix = match.get("cwd_prefix")
+    cwd = match.get("cwd")
     session_id = match.get("session_id")
-    if not cwd_prefix and not session_id:
+    if not cwd_prefix and not cwd and not session_id:
         return None  # a scope with nothing to match on can never apply — drop it
     mode = raw.get("mode")
     if mode not in _MODES:
         mode = None
-    domain = [
-        DomainCriterion.from_dict(d)
-        for d in (raw.get("add_domain_criteria") or [])
-        if isinstance(d, dict) and d.get("id")
-    ]
+    domain = []
+    for j, d in enumerate(raw.get("add_domain_criteria") or []):
+        if not isinstance(d, dict) or not str(d.get("description", "")).strip():
+            continue
+        item = dict(d)
+        item["id"] = str(item.get("id") or f"SC-{index + 1}-{j + 1:03d}")
+        domain.append(DomainCriterion.from_dict(item))
     return Scope(
-        name=str(raw.get("name") or cwd_prefix or session_id or f"scope-{index + 1}"),
+        name=str(raw.get("name") or cwd or cwd_prefix or session_id or f"scope-{index + 1}"),
         cwd_prefix=str(cwd_prefix) if cwd_prefix else None,
+        cwd=str(cwd) if cwd else None,
         session_id=str(session_id) if session_id else None,
         mode=mode,
         add_invariants=[str(x) for x in (raw.get("add_invariants") or []) if str(x).strip()],
@@ -131,6 +141,8 @@ def parse_scopes(raws) -> list[Scope]:
 def scope_to_payload(scope: Scope) -> dict:
     """Plain dict for criteria.yaml / the API. Round-trips through :func:`parse_scopes`."""
     out: dict = {"name": scope.name, "match": {}}
+    if scope.cwd:
+        out["match"]["cwd"] = scope.cwd
     if scope.cwd_prefix:
         out["match"]["cwd_prefix"] = scope.cwd_prefix
     if scope.session_id:

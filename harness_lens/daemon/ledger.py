@@ -90,6 +90,7 @@ class Step:
     decision: Optional[str] = None  # allow|deny|escalate
     decision_layer: Optional[int] = None
     decision_reason: Optional[str] = None
+    decision_criterion: Optional[str] = None  # which rule fired: L2 criterion id / L1 invariant / L3 key
     started_at: float = field(default_factory=time.time)
     ended_at: Optional[float] = None
     duration_ms: Optional[int] = None
@@ -187,9 +188,14 @@ CREATE INDEX IF NOT EXISTS idx_flows_started ON flows(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_approvals_step ON approvals(step_id);
 """
 
+# Track which specific rule decided a step, so the GUI can pinpoint the fired L2 criterion / L1
+# invariant among many. NULL for pre-existing rows (decision_reason still carries the text).
+_SCHEMA_V2 = "ALTER TABLE steps ADD COLUMN decision_criterion TEXT;"
+
 # (version, sql). Append-only: never edit a shipped migration; add the next one.
 _MIGRATIONS: tuple[tuple[int, str], ...] = (
     (1, _SCHEMA_V1),
+    (2, _SCHEMA_V2),
 )
 SCHEMA_VERSION = _MIGRATIONS[-1][0]
 
@@ -253,7 +259,7 @@ class DaemonLedger:
         return _flow(row) if row else None
 
     def list_flows(self, limit: int = 50, status: Optional[str] = None,
-                   source: Optional[str] = None) -> list[Flow]:
+                   source: Optional[str] = None, has_cwd: bool = False) -> list[Flow]:
         sql = "SELECT * FROM flows"
         clauses, params = [], []
         if status:
@@ -262,6 +268,9 @@ class DaemonLedger:
         if source:
             clauses.append("source=?")
             params.append(source)
+        if has_cwd:
+            # Only sessions tied to a real project folder — drops cwd-less subagent/tool sessions.
+            clauses.append("cwd IS NOT NULL AND cwd != ''")
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY started_at DESC LIMIT ?"
@@ -269,6 +278,18 @@ class DaemonLedger:
         with self._lock:
             rows = self._conn.execute(sql, tuple(params)).fetchall()
         return [_flow(r) for r in rows]
+
+    def latest_running_turn(self, flow_id: str) -> Optional[str]:
+        """The most recent still-open turn task of a Flow — used to rehydrate in-memory state
+        after a daemon restart so an in-progress session resumes its turn (keeping its title)
+        instead of spawning a titleless "(요청 미관측)" turn for the next tool."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT task_id FROM tasks WHERE flow_id=? AND kind='turn' AND status='running' "
+                "ORDER BY seq DESC LIMIT 1",
+                (flow_id,),
+            ).fetchone()
+        return row["task_id"] if row else None
 
     # -- tasks ----------------------------------------------------------- #
     def upsert_task(self, task: Task) -> Task:
@@ -310,9 +331,9 @@ class DaemonLedger:
         with self._lock:
             self._conn.execute(
                 """INSERT INTO steps(step_id, task_id, flow_id, tool_name, tool_input, tool_output,
-                       status, decision, decision_layer, decision_reason, started_at, ended_at,
-                       duration_ms, tokens, judge_score, judge_reason, seq)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                       status, decision, decision_layer, decision_reason, decision_criterion,
+                       started_at, ended_at, duration_ms, tokens, judge_score, judge_reason, seq)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(step_id) DO UPDATE SET
                      tool_name=excluded.tool_name,
                      tool_input=COALESCE(excluded.tool_input, steps.tool_input),
@@ -321,14 +342,15 @@ class DaemonLedger:
                      decision=COALESCE(excluded.decision, steps.decision),
                      decision_layer=COALESCE(excluded.decision_layer, steps.decision_layer),
                      decision_reason=COALESCE(excluded.decision_reason, steps.decision_reason),
+                     decision_criterion=COALESCE(excluded.decision_criterion, steps.decision_criterion),
                      ended_at=excluded.ended_at, duration_ms=excluded.duration_ms,
                      tokens=COALESCE(excluded.tokens, steps.tokens),
                      judge_score=COALESCE(excluded.judge_score, steps.judge_score),
                      judge_reason=COALESCE(excluded.judge_reason, steps.judge_reason)""",
                 (step.step_id, step.task_id, step.flow_id, step.tool_name, step.tool_input,
                  step.tool_output, step.status, step.decision, step.decision_layer,
-                 step.decision_reason, step.started_at, step.ended_at, step.duration_ms,
-                 step.tokens, step.judge_score, step.judge_reason, step.seq),
+                 step.decision_reason, step.decision_criterion, step.started_at, step.ended_at,
+                 step.duration_ms, step.tokens, step.judge_score, step.judge_reason, step.seq),
             )
             self._conn.commit()
             self._recompute_flow_totals(step.flow_id)
@@ -512,7 +534,8 @@ def _step(row: sqlite3.Row) -> Step:
         step_id=row["step_id"], task_id=row["task_id"], flow_id=row["flow_id"],
         tool_name=row["tool_name"], tool_input=row["tool_input"], tool_output=row["tool_output"],
         status=row["status"], decision=row["decision"], decision_layer=row["decision_layer"],
-        decision_reason=row["decision_reason"], started_at=row["started_at"], ended_at=row["ended_at"],
+        decision_reason=row["decision_reason"], decision_criterion=row["decision_criterion"],
+        started_at=row["started_at"], ended_at=row["ended_at"],
         duration_ms=row["duration_ms"], tokens=row["tokens"], judge_score=row["judge_score"],
         judge_reason=row["judge_reason"], seq=row["seq"],
     )

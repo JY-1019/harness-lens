@@ -41,7 +41,7 @@ from .config import (
 )
 from .events import HarnessEvent, mask_secrets
 from .ledger import DaemonLedger, Flow, Step, Task, migrate_legacy, relocate_legacy_db
-from .policy import PolicyContext, PolicyEngine, read_path_of
+from .policy import PolicyContext, PolicyEngine, looks_like_test, read_path_of
 from .writer import LedgerWriter
 
 
@@ -67,6 +67,7 @@ class FlowState:
     open_steps: dict[str, str] = field(default_factory=dict)  # pair-key → step_id
     failed_steps: int = 0
     total_steps: int = 0
+    ran_tests: bool = False  # a test suite ran in this flow (for the L2 test-before-change check)
 
     @property
     def active_task(self) -> Optional[str]:
@@ -190,7 +191,176 @@ class DaemonRuntime:
         # machinery the legacy Layer-3 edit path uses.
         ComponentManager(self.root).apply("qa.py", self.criteria_path, text)
         self.reload_criteria()
+        self.bus.publish("criteria_changed", data=self.criteria_payload())
         return self.scopes_payload()
+
+    # -- base 3-Layer editing (GUI/API) ---------------------------------- #
+    def criteria_payload(self) -> dict:
+        """The global base 3-Layer criteria as plain data for the harness editor."""
+        return self._criteria_payload(self.criteria)
+
+    @staticmethod
+    def _criteria_payload(criteria: ThreeLayerCriteria) -> dict:
+        """A serialisable view of a 3-Layer criteria object."""
+        return {
+            "invariants": list(criteria.invariants),
+            "domain_criteria": [
+                {"id": dc.id, "description": dc.description, "weight": dc.weight}
+                for dc in criteria.domain_criteria
+            ],
+            "layer3": criteria.qa.config.as_dict(),
+        }
+
+    def effective_criteria_payload(
+        self, cwd: Optional[str] = None, session_id: Optional[str] = None,
+        flow_id: Optional[str] = None,
+    ) -> dict:
+        """The effective 3-Layer harness for a project/session after scope resolution."""
+        if flow_id:
+            flow = self.ledger.get_flow(flow_id)
+            if flow is not None:
+                cwd = cwd or flow.cwd
+                session_id = session_id or flow.flow_id
+        scope = resolve_scope(self.scopes, cwd, session_id)
+        effective = apply_scope(self.criteria, scope)
+        out = self._criteria_payload(effective)
+        out["scope"] = scope_to_payload(scope) if scope else None
+        out["scope_name"] = scope.name if scope else "global"
+        out["mode"] = (scope.mode or self.config.mode) if scope else self.config.mode
+        out["cwd"] = cwd
+        out["session_id"] = session_id
+        return out
+
+    def harness_summary(self, cwd: Optional[str], session_id: Optional[str]) -> dict:
+        """Compact Flow-card summary of the harness currently selected for a Flow."""
+        effective = self.effective_criteria_payload(cwd=cwd, session_id=session_id)
+        scope = effective.get("scope") or {}
+        return {
+            "scope_name": effective["scope_name"],
+            "scope": effective.get("scope"),
+            "mode": effective["mode"],
+            "layer3": effective["layer3"],
+            "invariants_count": len(effective["invariants"]),
+            "domain_criteria_count": len(effective["domain_criteria"]),
+            "added_invariants_count": len(scope.get("add_invariants") or []),
+            "added_domain_criteria_count": len(scope.get("add_domain_criteria") or []),
+        }
+
+    def flow_payload(self, flow: Flow) -> dict:
+        """A Flow row enriched with the project/session harness that applies to it."""
+        data = _row(flow)
+        data["harness"] = self.harness_summary(flow.cwd, flow.flow_id)
+        return data
+
+    def flow_tree_payload(self, flow_id: str) -> Optional[dict]:
+        """Tree read model with the 3-Layer summary + per-step service-harness attribution."""
+        tree = self.ledger.flow_tree(flow_id)
+        if tree is None:
+            return None
+        tree["harness"] = self.harness_summary(tree.get("cwd"), tree.get("flow_id"))
+        self._annotate_usage(tree.get("tasks") or [])
+        tree["l3_status"] = _l3_status(tree.get("tasks") or [], (tree.get("harness") or {}).get("layer3") or {})
+        return tree
+
+    def _annotate_usage(self, tasks: list) -> None:
+        """Attach ``harness_usage`` to every step so the trajectory shows which scaffolding
+        (skill/command/workflow/mcp/instruction/cursor rule) each action exercised — recovering
+        signal lost when, e.g., Codex runs almost everything through one ``Bash``/shell tool."""
+        for task in tasks:
+            for step in task.get("steps") or []:
+                step["harness_usage"] = self.usage_for_step(
+                    step.get("tool_name"), step.get("tool_input"), step.get("tool_output")
+                )
+            self._annotate_usage(task.get("children") or [])
+
+    @staticmethod
+    def usage_for_step(tool_name: Optional[str], tool_input, tool_output) -> list[dict]:
+        """Best-effort attribution of the service harness a single step exercised (read-time)."""
+        from ..harness_usage import detect_usage
+
+        if not tool_name:
+            return []
+        usages = detect_usage(tool_name, _as_text(tool_input), _as_text(tool_output))
+        return [{"kind": u.kind, "name": u.name} for u in usages]
+
+    def service_harness_payload(self, flow_id: str) -> Optional[dict]:
+        """The external scaffolding (CLAUDE.md/AGENTS.md/skills/workflows/settings/MCP/hooks +
+        .cursor/rules) applied to a Flow's project — distinct from the 3-Layer harness."""
+        flow = self.ledger.get_flow(flow_id)
+        if flow is None:
+            return None
+        from ..detector import detect
+        from ..harness import LensUnsupportedPlatform, inspect_project
+
+        platform_name = "claude-code" if flow.source == "claude_code" else "codex"
+        platform = detect(platform_name)
+        components: list[dict] = []
+        tool_categories: dict = {}
+        if platform is not None and flow.cwd:
+            try:
+                report = inspect_project(Path(flow.cwd), platform, self.criteria)
+                components = [
+                    {"component": c.component, "kind": c.kind, "scope": c.scope,
+                     "path": str(c.path), "exists": c.exists, "editable": c.editable,
+                     "detail": c.detail}
+                    for c in report.applied()
+                ]
+                tool_categories = report.tool_categories
+            except LensUnsupportedPlatform:
+                pass
+        return {
+            "flow_id": flow_id, "source": flow.source, "cwd": flow.cwd,
+            "platform": platform.label if platform else None,
+            "components": components + _scan_cursor_rules(flow.cwd),
+            "tool_categories": tool_categories,
+        }
+
+    def component_prompt(self, kind: str, name: str, cwd: Optional[str] = None) -> dict:
+        """Resolve a service-harness component (skill/command/workflow/instruction/cursor rule)
+        to its on-disk prompt file and return its text — so the GUI can show *what that scaffolding
+        actually told the agent* when its chip is clicked in the trajectory."""
+        path = _resolve_component_path(kind, name, cwd)
+        if path is None:
+            note = ("MCP 서버 설정 — 프롬프트 파일 없음" if kind in ("mcp", "mcp_config")
+                    else "프롬프트 파일을 찾지 못했습니다 (전역/프로젝트 양쪽 확인)")
+            return {"kind": kind, "name": name, "found": False, "path": None, "content": None, "note": note}
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            return {"kind": kind, "name": name, "found": False, "path": str(path),
+                    "content": None, "note": str(exc)}
+        limit = 16000
+        truncated = len(text) > limit
+        return {"kind": kind, "name": name, "found": True, "path": str(path),
+                "content": text[:limit] + ("\n\n…(생략됨)" if truncated else ""), "truncated": truncated}
+
+    def edit_criteria(self, layer: str, payload: dict) -> dict:
+        """Apply a human owner edit to one base layer, then hot-reload the live policy.
+
+        Reuses :class:`LensService`'s edit methods so the daemon and the (fallback) CLI/GUI share
+        one set of validation + backup + instruction-block re-enforcement. The autonomous evolver
+        is still pinned to Layer 3 by the CriteriaGuard; this is the human's explicit edit path.
+        ``layer3`` also flows through here so the editor has one consistent endpoint per layer.
+        """
+        from ..service import LensService
+
+        svc = LensService(root=self.root)
+        try:
+            if layer == "layer1":
+                svc.update_invariants(payload.get("invariants", []))
+            elif layer == "layer2":
+                svc.update_domain_criteria(payload.get("domain_criteria", []))
+            elif layer == "layer3":
+                svc.update_layer3(payload.get("layer3", payload))
+            else:
+                raise ValueError(f"unknown layer {layer!r} (expected layer1|layer2|layer3)")
+        finally:
+            svc.close()
+        # LensService wrote criteria.yaml; refresh the daemon's in-memory criteria + scope policies
+        # so the very next hook is judged against the new harness, and tell any open GUI to reload.
+        self.reload_criteria()
+        self.bus.publish("criteria_changed", data=self.criteria_payload())
+        return self.criteria_payload()
 
     def _scope_for(self, event: HarnessEvent):
         """The scope (if any) that applies to this event's project/session."""
@@ -254,6 +424,14 @@ class DaemonRuntime:
         st = self._flows.get(event.session_id)
         if st is None:
             st = FlowState(flow_id=event.session_id, cwd=event.cwd)
+            # Daemon restarted mid-session: in-memory state was lost. Resume the Flow's open turn
+            # from the ledger so the next tool reuses it (and its title) instead of opening a
+            # titleless turn — the cause of "(요청 미관측)" turns proliferating across restarts.
+            if self.ledger.get_flow(event.session_id) is not None:
+                st.current_turn_task = self.ledger.latest_running_turn(event.session_id)
+                if st.cwd is None:
+                    flow = self.ledger.get_flow(event.session_id)
+                    st.cwd = flow.cwd if flow else None
             self._flows[event.session_id] = st
         elif st.cwd is None and event.cwd:
             st.cwd = event.cwd
@@ -340,6 +518,8 @@ class DaemonRuntime:
         rp = read_path_of(event)
         if rp:
             st.read_paths.add(rp)
+        if looks_like_test(event.tool_text()):  # remember tests ran → L2 test-before-change check
+            st.ran_tests = True
         return step_id
 
     def _on_post_tool(self, event: HarnessEvent) -> Optional[str]:
@@ -416,7 +596,8 @@ class DaemonRuntime:
     def _context(self, event: HarnessEvent) -> PolicyContext:
         st = self._flows.get(event.session_id) or FlowState(flow_id=event.session_id)
         return PolicyContext(
-            read_paths=set(st.read_paths), failed_steps=st.failed_steps, total_steps=st.total_steps
+            read_paths=set(st.read_paths), failed_steps=st.failed_steps,
+            total_steps=st.total_steps, ran_tests=st.ran_tests,
         )
 
     async def _await_approval(self, event: HarnessEvent, step_id: str, decision: Decision) -> Decision:
@@ -441,22 +622,28 @@ class DaemonRuntime:
     async def _resolve_decision(
         self, approval_id: str, step_id: str, original: Decision, resolution: str
     ) -> Decision:
+        # Always carry the ORIGINAL escalate reason through to the resolved decision, so the step
+        # always shows *why* it escalated — even after it was approved (previously the reason was
+        # overwritten with a bare "승인됨", losing the L2 cause).
+        why = original.reason or "L2 검토 필요"
+        cid = original.criterion_id  # keep pointing at the rule that originally fired
+        layer = original.layer or 2
         if resolution == APPROVED:
             await self.writer.submit(lambda: self.ledger.resolve_approval(approval_id, "approved", "gui"))
-            return Decision.allow(layer=2, reason="승인됨 (escalate 해소)")
+            return Decision.allow(layer=layer, reason=f"승인됨 (escalate 해소) — 사유: {why}", criterion_id=cid)
         if resolution == DENIED:
             await self.writer.submit(lambda: self.ledger.resolve_approval(approval_id, "denied", "gui"))
-            return Decision.deny(layer=2, reason=original.reason or "거부됨")
+            return Decision.deny(layer=layer, reason=f"거부됨 — 사유: {why}", criterion_id=cid)
         # timeout → apply default_on_timeout
         policy = self.config.default_on_timeout
         await self.writer.submit(lambda: self.ledger.resolve_approval(
             approval_id, "timeout", "policy", f"default_on_timeout={policy}"))
         if policy == TIMEOUT_ALLOW:
-            return Decision.allow(layer=2, reason="승인 타임아웃 — 기본 정책상 허용")
+            return Decision.allow(layer=layer, reason=f"승인 타임아웃 — 기본 정책상 허용 · 원래 사유: {why}", criterion_id=cid)
         if policy == TIMEOUT_ESCALATE_TERMINAL:
-            # Claude renders this as permissionDecision "ask"; Codex downgrades to deny.
-            return Decision.escalate(layer=2, reason="승인 타임아웃 — 터미널로 에스컬레이션")
-        return Decision.deny(layer=2, reason="승인 타임아웃 — 기본 정책상 거부")
+            # Claude renders this as permissionDecision "ask"; Codex collapses to deny.
+            return Decision.escalate(layer=layer, reason=f"승인 타임아웃 — 터미널로 에스컬레이션 · 사유: {why}", criterion_id=cid)
+        return Decision.deny(layer=layer, reason=f"승인 타임아웃 — 기본 정책상 거부 · 원래 사유: {why}", criterion_id=cid)
 
     def resolve_approval(self, approval_id: str, resolution: str, reason: Optional[str] = None) -> bool:
         """External (REST/CLI) resolution entry point. Returns True if a waiter was unblocked."""
@@ -470,6 +657,7 @@ class DaemonRuntime:
         step.decision = decision.action
         step.decision_layer = decision.layer
         step.decision_reason = decision.reason
+        step.decision_criterion = decision.criterion_id
         if decision.action == DENY:
             step.status = "denied"
         elif step.status == "pending_approval":
@@ -480,7 +668,7 @@ class DaemonRuntime:
                 {"step_id": step_id, "downgrades": decision.downgrades},
             )
         self.ledger.upsert_step(step)
-        self.bus.publish("upsert", "step", _row(step))
+        self.bus.publish("upsert", "step", self._step_patch(step))
 
     def _set_step_status(self, step_id: str, status: str, decision: Decision) -> None:
         step = self.ledger.get_step(step_id)
@@ -490,13 +678,14 @@ class DaemonRuntime:
         step.decision = decision.action
         step.decision_layer = decision.layer
         step.decision_reason = decision.reason
+        step.decision_criterion = decision.criterion_id
         self.ledger.upsert_step(step)
-        self.bus.publish("upsert", "step", _row(step))
+        self.bus.publish("upsert", "step", self._step_patch(step))
 
     # -- publish helpers (write to ledger + emit a bus patch) ------------ #
     def _publish_flow(self, flow: Flow) -> None:
         self.ledger.upsert_flow(flow)
-        self.bus.publish("upsert", "flow", _row(flow))
+        self.bus.publish("upsert", "flow", self.flow_payload(flow))
 
     def _publish_task(self, task: Task) -> None:
         self.ledger.upsert_task(task)
@@ -504,7 +693,14 @@ class DaemonRuntime:
 
     def _publish_step(self, step: Step) -> None:
         self.ledger.upsert_step(step)
-        self.bus.publish("upsert", "step", _row(step))
+        self.bus.publish("upsert", "step", self._step_patch(step))
+
+    def _step_patch(self, step: Step) -> dict:
+        """Step row for a live patch, enriched with its service-harness attribution so the
+        trajectory shows usage chips immediately (not only after a REST tree re-fetch)."""
+        data = _row(step)
+        data["harness_usage"] = self.usage_for_step(step.tool_name, step.tool_input, step.tool_output)
+        return data
 
     # -- read models for REST -------------------------------------------- #
     def status_payload(self) -> dict:
@@ -539,6 +735,106 @@ def _is_failure(event: HarnessEvent) -> bool:
         if out.get("error") or out.get("is_error") or out.get("success") is False:
             return True
     return bool(event.status and str(event.status).lower() in ("error", "failed", "failure"))
+
+
+def _l3_status(tasks: list, l3: dict) -> dict:
+    """Per-flow Layer-3 threshold status — which QA limits the run crossed. L3 never blocks a step
+    (it drives alerting/AHE), so this surfaces *where* it was breached: failures vs failure_count_trigger,
+    slow steps vs latency_multiplier×median, low Judge scores vs quality_threshold (when scored)."""
+    steps: list = []
+
+    def walk(ts):
+        for t in ts:
+            steps.extend(t.get("steps") or [])
+            walk(t.get("children") or [])
+    walk(tasks)
+
+    failures = sum(1 for s in steps if s.get("status") == "failed")
+    durs = sorted(s["duration_ms"] for s in steps if s.get("duration_ms"))
+    median_d = durs[len(durs) // 2] if durs else None
+    lat_mult = l3.get("latency_multiplier")
+    slow = (sum(1 for s in steps if s.get("duration_ms") and s["duration_ms"] > lat_mult * median_d)
+            if (median_d and lat_mult) else 0)
+    quality = l3.get("quality_threshold")
+    low_q = sum(1 for s in steps if s.get("judge_score") is not None and quality is not None
+                and s["judge_score"] < quality)
+    fail_trigger = l3.get("failure_count_trigger")
+    out = {
+        "failures": {"value": failures, "threshold": fail_trigger,
+                     "breached": bool(fail_trigger and failures >= fail_trigger)},
+        "slow": {"value": slow, "threshold": lat_mult, "breached": slow > 0},
+        "low_quality": {"value": low_q, "threshold": quality,
+                        "breached": bool(low_q)},
+    }
+    out["breached"] = any(v["breached"] for v in out.values() if isinstance(v, dict))
+    return out
+
+
+def _as_text(value) -> str:
+    """Flatten a step's tool input/output (str or already-JSON) to text for usage attribution."""
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else (_json(value) or "")
+
+
+def _resolve_component_path(kind: str, name: str, cwd: Optional[str]) -> Optional[Path]:
+    """Locate the prompt file backing a (kind, name) service-harness component.
+
+    Searches the project (cwd) first, then the user's home — under both ``.claude`` and ``.codex``
+    where applicable — and returns the first existing file. Mirrors the vocabulary
+    :func:`harness_lens.harness_usage.detect_usage` attributes from a step.
+    """
+    if not name:
+        return None
+    roots: list[Path] = []
+    if cwd:
+        roots.append(Path(cwd))
+    roots.append(Path.home())
+
+    def candidates(base: Path) -> list[Path]:
+        claude, codex = base / ".claude", base / ".codex"
+        if kind == "skill":
+            return [claude / "skills" / name / "SKILL.md", codex / "skills" / name / "SKILL.md"]
+        if kind == "command":
+            return [claude / "commands" / f"{name}.md", claude / "prompts" / f"{name}.md",
+                    codex / "commands" / f"{name}.md", codex / "prompts" / f"{name}.md"]
+        if kind == "workflow":
+            out: list[Path] = []
+            for ext in (".md", ".markdown", ".js"):
+                out += [claude / "workflows" / f"{name}{ext}", codex / "workflows" / f"{name}{ext}"]
+            return out
+        if kind == "plugin":
+            return [claude / "plugins" / name / "SKILL.md", claude / "plugins" / name / "README.md"]
+        if kind == "cursor_rule":
+            return [base / ".cursor" / "rules" / f"{name}.mdc", base / ".cursor" / "rules" / f"{name}.md"]
+        if kind in ("instruction", "import"):
+            # name is e.g. "CLAUDE.md" / "AGENTS.md": project root, then ~/.claude, ~/.codex, ~.
+            return [base / name, claude / name, codex / name]
+        return []
+
+    for base in roots:
+        for cand in candidates(base):
+            if cand.is_file():
+                return cand
+    return None
+
+
+def _scan_cursor_rules(cwd: Optional[str]) -> list[dict]:
+    """`.cursor/rules/**` are harness scaffolding even though Cursor is not a tracked runtime —
+    include them in the audit scope (global + project), as service-harness components."""
+    out: list[dict] = []
+    bases = [(Path.home(), "전역")]
+    if cwd:
+        bases.append((Path(cwd), "프로젝트"))
+    for base, scope in bases:
+        rules = base / ".cursor" / "rules"
+        if not rules.is_dir():
+            continue
+        names = sorted(p.name for p in rules.glob("**/*") if p.is_file())
+        detail = f"{len(names)}개 규칙" + (": " + ", ".join(names[:5]) if names else "")
+        out.append({"component": "cursor_rules", "kind": "커서 규칙", "scope": scope,
+                    "path": str(rules), "exists": True, "editable": False, "detail": detail})
+    return out
 
 
 def _row(record) -> dict:

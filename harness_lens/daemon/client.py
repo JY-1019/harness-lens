@@ -78,13 +78,17 @@ def _on_outage(source: str, payload: dict, config: DaemonConfig, is_control: boo
         sys.stdout.write("{}")  # empty output = allow / no-op for both harnesses
         return 0
     # Fail-closed: deny the control action with a clear reason in the source's shape.
-    if source == "codex":
-        sys.stdout.write(json.dumps({"decision": "deny", "reason": "harness-lens daemon 미응답 (fail-closed)"}))
+    reason = "harness-lens daemon 미응답 (fail-closed)"
+    hook = _hook_name(payload) or "PreToolUse"
+    if source == "codex" and hook != "PreToolUse":
+        # Codex Stop/UserPromptSubmit block via the top-level `decision` (no hookSpecificOutput wire).
+        sys.stdout.write(json.dumps({"decision": "block", "reason": reason}))
     else:
+        # Both Claude Code and Codex ≥0.139 share this PreToolUse shape — allow/deny/ask live in
+        # hookSpecificOutput.permissionDecision (Codex's top-level `decision` only accepts approve/block,
+        # so the legacy {"decision":"deny"} produced "invalid pre-tool-use JSON output").
         sys.stdout.write(json.dumps({"hookSpecificOutput": {
-            "hookEventName": _hook_name(payload) or "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": "harness-lens daemon 미응답 (fail-closed)",
+            "hookEventName": hook, "permissionDecision": "deny", "permissionDecisionReason": reason,
         }}))
     return 0
 

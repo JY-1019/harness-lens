@@ -71,7 +71,21 @@ class ClaudeCodeAdapter(Adapter):
         decision = self.finalize(decision, event)
         if event.kind in ("stop", "subagent_stop"):
             return self._render_stop(decision, event)
+        if event.kind == "user_prompt":
+            return self._render_user_prompt(decision)
         return self._render_pre_tool(decision, event)
+
+    def _render_user_prompt(self, decision: Decision) -> dict:
+        # A UserPromptSubmit hook must NOT return a PreToolUse-shaped output — Claude Code rejects it
+        # ("incorrect event name: expected 'UserPromptSubmit' but got 'PreToolUse'"). Allow is a no-op;
+        # deny blocks the prompt; inject rides a UserPromptSubmit hookSpecificOutput.
+        if decision.action == DENY:
+            return {"decision": "block", "reason": decision.reason or ""}
+        if decision.inject_context:
+            return {"hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit", "additionalContext": decision.inject_context,
+            }}
+        return {}
 
     def _render_pre_tool(self, decision: Decision, event: HarnessEvent) -> dict:
         # allow → "allow"; deny → "deny"; escalate → "ask" (escalate to the terminal prompt).
