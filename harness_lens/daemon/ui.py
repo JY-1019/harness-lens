@@ -135,8 +135,6 @@ _PAGE = r"""<!DOCTYPE html>
   .scopedcrow input { min-width:0; }
   .ok { color:var(--green); }
   /* request banner — the user's ask, made the headline of each turn */
-  .reqicon { opacity:.9; }
-  .prompt .reqicon { font-weight:600; }
   /* harness (3-Layer) editor */
   .hl-badge { font-size:.72rem; border:1px solid var(--blue); color:var(--blue); border-radius:999px; padding:.05rem .55rem; }
   .hl-layer { border:1px solid var(--line); border-radius:8px; padding:.5rem .65rem; margin-bottom:.7rem; }
@@ -622,17 +620,17 @@ function renderCanvas() {
   th.append(el("span","grow"), modeBtn);
   view.append(th);
 
-  // Each turn = one user request in the thread, oldest→newest (chat order); only the open ones
-  // render their (potentially long) trajectory.
+  // Each turn = one user request in the thread, NEWEST on top; only the open ones render their
+  // (potentially long) trajectory.
   if (!turns.length) view.append(el("p","muted","아직 동작이 없습니다."));
-  else turns.forEach(t => view.append(renderTurnSection(f, t)));
+  else [...turns].reverse().forEach(t => view.append(renderTurnSection(f, t)));
   c.append(view);
 }
 function renderTurnSection(f, t) {
   const open = state.expandedTurns.has(t.task_id);
   const sec = el("div","turnsec" + (open ? " open" : ""));
   const head = el("div","turnhead");
-  head.append(el("span","caret", open ? "▾" : "▸"), el("span","reqicon","🧑"));
+  head.append(el("span","caret", open ? "▾" : "▸"));
   const ask = el("span","turnask", requestLabel(t)); ask.title = requestLabel(t);
   head.append(ask);
   const n = stepCountForTask(t.task_id); if (n) head.append(el("span","chip", n + "단계"));
@@ -821,13 +819,13 @@ function renderTask(t) {
   const hdr = el("div","taskhdr");
   const isSub = t.kind==="subagent";
   const req = isSub ? "" : cleanTitle(t.title);
-  const label = el("span",null,isSub ? ("🤖 "+(t.agent_name||"subagent")) : ("🧑 "+(req||"요청 미관측").slice(0,46)));
+  const label = el("span",null,isSub ? ("🤖 "+(t.agent_name||"subagent")) : ((req||"요청 미관측").slice(0,46)));
   if (req) label.title = req;
   hdr.append(label);
   if (t.retry_count>0) hdr.append(el("span","chip","⟳"+t.retry_count));
   hdr.append(el("span","chip muted",t.status));
   wrap.append(hdr);
-  if (req) { const p = el("div","prompt"); p.append(el("span","reqicon","🧑 "), document.createTextNode(req)); wrap.append(p); }
+  if (req) { const p = el("div","prompt"); p.textContent = req; wrap.append(p); }
   const kids = el("div","children");
   Object.values(state.steps).filter(s => s.task_id===t.task_id).sort((a,b)=>a.seq-b.seq)
     .forEach(s => kids.append(renderStep(s)));
