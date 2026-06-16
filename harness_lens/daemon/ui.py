@@ -136,13 +136,26 @@ _PAGE = r"""<!DOCTYPE html>
   .warn { color:var(--red); font-size:.76rem; margin:.2rem 0; }
   /* sidebar: each session = a [source] folder accordion → dropdown of the user's requests */
   #sessions { display:flex; flex-direction:column; }
-  .sessitem { border-bottom:1px solid var(--line); padding:.1rem 0 .3rem; }
-  .sesshead { display:flex; gap:.4rem; align-items:center; padding:.25rem .2rem; border-radius:5px; cursor:pointer; }
+  /* project group (folder) — sessions stack beneath it */
+  .projgroup { border-bottom:1px solid var(--line); padding:.1rem 0 .25rem; }
+  .projhead { display:flex; gap:.35rem; align-items:center; padding:.3rem .25rem; border-radius:5px; cursor:pointer; }
+  .projhead:hover { background:#8881; }
+  .projicon { font-size:.82rem; }
+  .pname { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; font-size:.86rem; }
+  .cnt { font-size:.66rem; opacity:.6; white-space:nowrap; }
+  .modectl { display:inline-flex; }
+  .modesel { font-size:.66rem; border-radius:4px; padding:.05rem .2rem; border:1px solid var(--line); background:transparent; color:inherit; cursor:pointer; }
+  .modesel.enf { border-color:var(--amber); color:var(--amber); font-weight:700; }
+  .modesel.obs { opacity:.75; }
+  .projsessions { margin-left:.5rem; padding-left:.35rem; border-left:1px solid var(--line); }
+  .sessitem { padding:.05rem 0 .15rem; }
+  .sesshead { display:flex; gap:.4rem; align-items:center; padding:.22rem .2rem; border-radius:5px; cursor:pointer; }
   .sesshead:hover { background:#8881; } .sesshead.cur { background:#8882; }
   .caret { width:.85rem; opacity:.65; text-align:center; }
   .srctag { font-size:.66rem; border-radius:4px; padding:.03rem .32rem; color:#fff; font-weight:700; letter-spacing:.02em; white-space:nowrap; }
   .srctag.claude { background:#d97706; } .srctag.codex { background:#2563eb; }
   .sname { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .smeta { font-size:.74rem; opacity:.85; }
   .sesssub { font-size:.71rem; margin:0 0 .1rem 1.3rem; }
   .reqlist { display:flex; flex-direction:column; gap:.08rem; margin:.25rem 0 .15rem .9rem; padding-left:.35rem; border-left:1px solid var(--line); }
   .reqitem { display:flex; gap:.35rem; align-items:center; padding:.18rem .35rem; border-radius:5px; cursor:pointer; }
@@ -269,7 +282,8 @@ const el = (t, c, x) => { const n = document.createElement(t); if (c) n.classNam
 const api = (p, opt={}) => fetch(p, { ...opt, headers: { ...H, ...(opt.headers||{}) } });
 
 const state = { flows:{}, tasks:{}, steps:{}, approvals:{}, effective:{}, serviceHarness:{},
-  expanded:new Set(), loaded:new Set(), selFlow:null, selTask:null, sel:null,
+  expanded:new Set(), expandedProjects:new Set(), loaded:new Set(), scopes:[],
+  selFlow:null, selTask:null, sel:null,
   mode:"observe", connected:false, snapRev:0, trajMode:"category" };
 const SRC_ICON = { claude_code:"🟧", codex:"🟦" };
 const SRC_NAME = { claude_code:"claude", codex:"codex" };
@@ -325,6 +339,21 @@ const _CATS = new Set(["수집","실행","반영","조사","외부도구","기�
 function cleanTitle(s){ s=(s==null?"":(""+s)).trim(); if(!s||s[0]==="{"||s[0]==="[") return ""; return _CATS.has(s)?"":s; }
 function baseName(path){ path=(path||"").replace(/\/+$/,""); return path ? path.split("/").pop() : ""; }
 function projectLabel(f){ return f.cwd ? baseName(f.cwd) || f.cwd : "cwd 미관측"; }
+// A project = one cwd folder; sessions of the same folder stack under it in the sidebar.
+function projKey(f){ return (f && f.cwd) ? (""+f.cwd).replace(/\/+$/,"") : "__nocwd__"; }
+function projName(cwd){ return baseName(cwd) || cwd || "cwd 미관측"; }
+async function loadScopes(){
+  try { state.scopes = (await (await api("/api/scopes")).json()).scopes || []; }
+  catch(e){ state.scopes = state.scopes || []; }
+}
+// The per-project enforce/observe override (exact-cwd scope), or null = inherits the global mode.
+function projectOverrideMode(cwd){
+  const k = (""+(cwd||"")).replace(/\/+$/,"");
+  for (const s of (state.scopes||[])) {
+    const m = (s.match||{}).cwd; if (m && (""+m).replace(/\/+$/,"")===k && s.mode) return s.mode;
+  }
+  return null;
+}
 // Only sessions tied to a real project folder are tracked; cwd-less subagent/tool sessions are hidden.
 function hasCwd(f){ return !!(f && f.cwd && (""+f.cwd).trim()); }
 function harnessName(f){ return (f.harness && f.harness.scope_name) || "global"; }
@@ -363,11 +392,13 @@ function defaultTurn(flowId){
 async function loadSnapshot() {
   const st = await (await api("/api/status")).json();
   state.mode = st.mode; state.snapRev = st.rev || 0; renderMode();
+  await loadScopes();
   const flows = await (await api("/api/flows?limit=50&has_cwd=true")).json();
   for (const f of flows) state.flows[f.flow_id] = f;
   // Open the most recent session and select its latest request, so the page isn't empty.
   const recent = [...flows].filter(hasCwd).sort((a,b)=>(b.started_at||0)-(a.started_at||0))[0];
   if (recent && !state.selFlow) {
+    state.expandedProjects.add(projKey(recent));  // expand the project this session belongs to
     state.expanded.add(recent.flow_id);
     await loadTree(recent.flow_id);
     const turn = defaultTurn(recent.flow_id);
@@ -425,37 +456,95 @@ function renderMode() {
 function renderConn() { const c = $("#conn"); c.textContent = state.connected ? "● 연결됨" : "● 끊김"; c.className = "badge " + (state.connected ? "ok" : "bad"); }
 function statusColor(s) { return ({running:"var(--blue)",completed:"var(--green)",failed:"var(--red)",aborted:"#888"})[s] || "#888"; }
 
-// Sidebar: one accordion per session — "[claude] folder" / "[codex] folder". Expanding a
-// session reveals a dropdown of the user's requests (turn tasks); picking one focuses the canvas.
+// Sidebar: grouped by PROJECT (folder). Each project is an accordion whose sessions stack beneath
+// it (like a Codex-style project → conversations list). A session expands into the user's requests
+// (turn tasks); picking one focuses the canvas. Each project header also pins its own enforce/observe.
 function renderSidebar() {
   const box = $("#sessions"); box.replaceChildren();
   // cwd-less subagent/tool sessions are excluded from tracking.
   const flows = Object.values(state.flows).filter(hasCwd).sort((a,b)=>(b.started_at||0)-(a.started_at||0));
   if (!flows.length) { box.append(el("p","muted","아직 추적된 세션이 없습니다.")); return; }
+  // Group flows by project folder, keeping each group's most-recent activity for ordering.
+  const groups = new Map();
   for (const f of flows) {
     seenSidebar[f.flow_id] = 1;
-    const open = state.expanded.has(f.flow_id);
-    const item = el("div","sessitem");
-    const head = el("div","sesshead" + (state.selFlow===f.flow_id ? " cur" : ""));
-    head.append(el("span","caret", open ? "▾" : "▸"),
-      el("span","srctag " + (f.source==="codex" ? "codex" : "claude"), srcName(f)));
-    const name = el("span","sname", projectLabel(f)); name.title = f.cwd || "cwd 미관측";
-    const dot = el("span","dot"); dot.style.background = statusColor(f.status);
-    head.append(name, dot);
-    head.onclick = () => toggleSession(f.flow_id);
-    item.append(head);
-    const turns = open ? turnTasks(f.flow_id) : [];
-    item.append(el("div","sesssub muted", relTime(f.started_at) + " · " + f.status +
-      (open ? " · 요청 " + turns.length : "")));
-    if (open) {
-      const list = el("div","reqlist");
-      if (!turns.length) list.append(el("div","muted reqempty","(요청 미관측)"));
-      // Newest request on top (turnTasks is chronological; reverse only for display).
-      [...turns].reverse().forEach(t => list.append(reqItem(f, t)));
-      item.append(list);
-    }
-    box.append(item);
+    const k = projKey(f);
+    if (!groups.has(k)) groups.set(k, { key:k, cwd:f.cwd, flows:[], latest:0 });
+    const g = groups.get(k); g.flows.push(f); g.latest = Math.max(g.latest, f.started_at||0);
   }
+  [...groups.values()].sort((a,b)=>b.latest-a.latest).forEach(g => box.append(renderProject(g)));
+}
+function renderProject(g) {
+  const open = state.expandedProjects.has(g.key);
+  const wrap = el("div","projgroup");
+  const head = el("div","projhead" + (open ? " open" : ""));
+  const running = g.flows.some(f => f.status === "running");
+  head.append(el("span","caret", open ? "▾" : "▸"), el("span","projicon","📁"));
+  const name = el("span","pname", projName(g.cwd)); name.title = g.cwd || "";
+  head.append(name);
+  if (running) { const d = el("span","dot"); d.style.background = statusColor("running"); head.append(d); }
+  head.append(el("span","grow"), el("span","cnt", g.flows.length + "세션"), projModeControl(g.cwd));
+  head.onclick = (ev) => { if (ev.target.closest(".modectl")) return; toggleProject(g.key); };
+  wrap.append(head);
+  if (open) {
+    const list = el("div","projsessions");
+    g.flows.forEach(f => list.append(renderSession(f)));
+    wrap.append(list);
+  }
+  return wrap;
+}
+// A per-project enforce/observe picker. "전역" clears the override so the project follows global mode.
+function projModeControl(cwd) {
+  const ov = projectOverrideMode(cwd);          // null → inherits global
+  const eff = ov || state.mode;                 // currently effective mode for this project
+  const wrap = el("span","modectl");
+  const sel = el("select","modesel " + (eff === "enforce" ? "enf" : "obs"));
+  [["", "전역(" + state.mode + ")"], ["observe", "observe"], ["enforce", "enforce"]].forEach(([v, label]) => {
+    const o = el("option", null, label); o.value = v; if ((ov || "") === v) o.selected = true; sel.append(o);
+  });
+  sel.title = ov ? ("이 프로젝트 고정: " + ov) : ("전역 모드 따름 (" + state.mode + ")");
+  sel.onclick = (ev) => ev.stopPropagation();
+  sel.onchange = (ev) => { ev.stopPropagation(); setProjectMode(cwd, sel.value || "global"); };
+  wrap.append(sel);
+  return wrap;
+}
+async function setProjectMode(cwd, mode) {
+  const r = await api("/api/projects/mode", { method:"POST", body: JSON.stringify({ cwd, mode }) });
+  if (!r.ok) return;
+  await loadScopes();
+  // Refresh flow cards so each session's harness chip reflects the new project mode, then repaint.
+  const flows = await (await api("/api/flows?limit=50&has_cwd=true")).json();
+  for (const f of flows) state.flows[f.flow_id] = { ...state.flows[f.flow_id], ...f };
+  renderSidebar(); renderCanvas();
+}
+function toggleProject(key) {
+  if (state.expandedProjects.has(key)) state.expandedProjects.delete(key);
+  else state.expandedProjects.add(key);
+  renderSidebar();
+}
+// One session (conversation) inside a project group: "[claude]/[codex] · 시간 · 상태" → requests.
+function renderSession(f) {
+  const open = state.expanded.has(f.flow_id);
+  const item = el("div","sessitem");
+  const head = el("div","sesshead" + (state.selFlow===f.flow_id ? " cur" : ""));
+  head.append(el("span","caret", open ? "▾" : "▸"),
+    el("span","srctag " + (f.source==="codex" ? "codex" : "claude"), srcName(f)));
+  const sub = el("span","sname smeta", relTime(f.started_at) + " · " + f.status);
+  sub.title = f.cwd || "";
+  const dot = el("span","dot"); dot.style.background = statusColor(f.status);
+  head.append(sub, dot);
+  head.onclick = () => toggleSession(f.flow_id);
+  item.append(head);
+  const turns = open ? turnTasks(f.flow_id) : [];
+  if (open) {
+    item.append(el("div","sesssub muted", "요청 " + turns.length));
+    const list = el("div","reqlist");
+    if (!turns.length) list.append(el("div","muted reqempty","(요청 미관측)"));
+    // Newest request on top (turnTasks is chronological; reverse only for display).
+    [...turns].reverse().forEach(t => list.append(reqItem(f, t)));
+    item.append(list);
+  }
+  return item;
 }
 function reqItem(f, t) {
   const r = el("div","reqitem" + (state.selTask===t.task_id ? " sel" : ""));
@@ -918,7 +1007,8 @@ function renderPending() {
     state.sel = first.step_id; showDetail(first.step_id);
     // Focus the session + request that owns the awaiting step.
     const s = state.steps[first.step_id];
-    if (s) { state.expanded.add(s.flow_id); state.selFlow = s.flow_id; if (s.task_id) state.selTask = s.task_id;
+    if (s) { const f = state.flows[s.flow_id]; if (f) state.expandedProjects.add(projKey(f));
+      state.expanded.add(s.flow_id); state.selFlow = s.flow_id; if (s.task_id) state.selTask = s.task_id;
       renderSidebar(); renderCanvas(); }
   };
 }

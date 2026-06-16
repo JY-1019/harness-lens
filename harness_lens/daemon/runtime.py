@@ -33,6 +33,7 @@ from .bus import EventBus
 from .capabilities import ALLOW, DENY, ESCALATE, Decision
 from .config import (
     MODE_ENFORCE,
+    MODES,
     TIMEOUT_ALLOW,
     TIMEOUT_DENY,
     TIMEOUT_ESCALATE_TERMINAL,
@@ -193,6 +194,38 @@ class DaemonRuntime:
         self.reload_criteria()
         self.bus.publish("criteria_changed", data=self.criteria_payload())
         return self.scopes_payload()
+
+    def set_project_mode(self, cwd: str, mode: Optional[str]) -> dict:
+        """Pin (or clear) observe/enforce for ONE project folder as an exact-cwd scope override.
+
+        ``mode`` of None / "" / "global" / "inherit" clears the override so the project follows the
+        global mode again. Any criteria the project's scope already carries (add_invariants /
+        add_domain_criteria / layer3) are preserved — only the mode field is touched. Returns the
+        effective mode now in force for the project plus whether an override is set."""
+        cwd = (cwd or "").strip()
+        if not cwd:
+            raise ValueError("cwd required")
+        override = None if mode in (None, "", "global", "inherit") else str(mode)
+        if override is not None and override not in MODES:
+            raise ValueError(f"mode must be one of {MODES} or 'global'")
+
+        scopes = self.scopes_payload()
+        found = next((s for s in scopes if (s.get("match") or {}).get("cwd") == cwd), None)
+        if found is not None:
+            if override is None:
+                found.pop("mode", None)
+                # A scope that exists only to carry a mode override is dropped once cleared, so the
+                # project cleanly reverts to the global base (no empty match-only scope left behind).
+                if not (found.get("add_invariants") or found.get("add_domain_criteria")
+                        or found.get("layer3")):
+                    scopes = [s for s in scopes if s is not found]
+            else:
+                found["mode"] = override
+        elif override is not None:
+            scopes.append({"name": Path(cwd).name or cwd, "match": {"cwd": cwd}, "mode": override})
+
+        self.save_scopes(scopes)
+        return {"cwd": cwd, "override": override, "mode": override or self.config.mode}
 
     # -- base 3-Layer editing (GUI/API) ---------------------------------- #
     def criteria_payload(self) -> dict:

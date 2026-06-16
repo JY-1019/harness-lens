@@ -114,6 +114,56 @@ def test_effective_criteria_and_flow_payload_are_project_scoped(tmp_home):
     assert flow["harness"]["added_domain_criteria_count"] == 1
 
 
+def test_set_project_mode_pins_and_clears_per_project(tmp_home, no_enforce):
+    """A project folder can pin its own enforce/observe (exact-cwd scope) and clear back to global."""
+    client, rt = _client(tmp_home)
+    h = {"X-HL-Token": rt.token}
+    cwd = "/repo/payments"
+    with client:
+        # pin enforce for just this folder
+        r = client.post("/api/projects/mode", headers=h, json={"cwd": cwd, "mode": "enforce"})
+        assert r.status_code == 200 and r.json()["override"] == "enforce" and r.json()["mode"] == "enforce"
+        scopes = client.get("/api/scopes", headers=h).json()["scopes"]
+        s = next(s for s in scopes if (s.get("match") or {}).get("cwd") == cwd)
+        assert s["mode"] == "enforce"
+        # the effective harness for that folder is now enforce
+        eff = client.get(f"/api/criteria/effective?cwd={cwd}", headers=h).json()
+        assert eff["mode"] == "enforce"
+        # clearing ('global') drops the override scope entirely (it carried only a mode)
+        r = client.post("/api/projects/mode", headers=h, json={"cwd": cwd, "mode": "global"})
+        assert r.status_code == 200 and r.json()["override"] is None
+        scopes = client.get("/api/scopes", headers=h).json()["scopes"]
+        assert not any((s.get("match") or {}).get("cwd") == cwd for s in scopes)
+
+
+def test_set_project_mode_preserves_existing_scope_criteria(tmp_home, no_enforce):
+    """Changing a project's mode must not drop criteria its scope already carries."""
+    client, rt = _client(tmp_home)
+    h = {"X-HL-Token": rt.token}
+    cwd = "/repo/app"
+    rt.save_scopes([{"name": "app", "match": {"cwd": cwd}, "mode": "observe",
+                     "add_invariants": ["keep me"], "add_domain_criteria": [{"description": "rule", "weight": 1}]}])
+    with client:
+        r = client.post("/api/projects/mode", headers=h, json={"cwd": cwd, "mode": "enforce"})
+        assert r.status_code == 200 and r.json()["mode"] == "enforce"
+        s = next(s for s in client.get("/api/scopes", headers=h).json()["scopes"]
+                 if (s.get("match") or {}).get("cwd") == cwd)
+        assert s["mode"] == "enforce" and "keep me" in s["add_invariants"]
+        # clearing keeps the scope (it still carries criteria) but removes the mode override
+        client.post("/api/projects/mode", headers=h, json={"cwd": cwd, "mode": "global"})
+        s = next(s for s in client.get("/api/scopes", headers=h).json()["scopes"]
+                 if (s.get("match") or {}).get("cwd") == cwd)
+        assert "mode" not in s and "keep me" in s["add_invariants"]
+
+
+def test_set_project_mode_requires_cwd_and_valid_mode(tmp_home, no_enforce):
+    client, rt = _client(tmp_home)
+    h = {"X-HL-Token": rt.token}
+    with client:
+        assert client.post("/api/projects/mode", headers=h, json={"mode": "enforce"}).status_code == 400
+        assert client.post("/api/projects/mode", headers=h, json={"cwd": "/x", "mode": "nope"}).status_code == 400
+
+
 def test_edit_rejects_out_of_range_layer3(tmp_home, no_enforce):
     client, rt = _client(tmp_home)
     with client:

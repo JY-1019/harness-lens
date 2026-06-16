@@ -101,6 +101,17 @@ def create_app(runtime: Optional[DaemonRuntime] = None, root: Optional[Path] = N
             raise HTTPException(status_code=400, detail="scopes must be a list")
         return {"scopes": runtime.save_scopes(scopes)}
 
+    @app.post("/api/projects/mode")
+    async def set_project_mode(body: dict, _=Depends(auth)) -> dict:
+        """Pin observe/enforce for one project folder (exact-cwd scope), or clear it ('global')."""
+        cwd = str(body.get("cwd", "")).strip()
+        if not cwd:
+            raise HTTPException(status_code=400, detail="cwd required")
+        try:
+            return runtime.set_project_mode(cwd, body.get("mode"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
     @app.get("/api/criteria")
     async def get_criteria(_=Depends(auth)) -> dict:
         return runtime.criteria_payload()
