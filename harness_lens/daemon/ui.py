@@ -185,18 +185,18 @@ _PAGE = r"""<!DOCTYPE html>
   .srctag.claude { background:#d97706; } .srctag.codex { background:#2563eb; }
   .sname { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .smeta { font-size:.75rem; color:var(--muted); }
-  .sesssub { font-size:.7rem; color:var(--muted); margin:0 0 .1rem 1.4rem; }
-  .reqlist { display:flex; flex-direction:column; gap:.08rem; margin:.25rem 0 .15rem .9rem; padding-left:.35rem; border-left:1px solid var(--line); }
-  .reqitem { display:flex; gap:.35rem; align-items:center; padding:.18rem .35rem; border-radius:5px; cursor:pointer; }
-  .reqitem:hover { background:#8881; } .reqitem.sel { background:var(--blue); color:#fff; }
-  .reqitem.sel .chip { border-color:#fff9; color:#fff; }
-  .rtext { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .reqempty { padding:.2rem .4rem; }
-  /* request view — the canvas focuses on one selected request */
+  /* conversation view — header once, then a collapsible section per turn (request) */
   .reqview { max-width:62rem; }
   .reqhead { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; margin-bottom:.3rem; }
   .reqask { padding:.5rem .7rem; border-left:3px solid var(--blue); background:var(--surface-2); border-radius:7px;
             white-space:pre-wrap; word-break:break-word; max-height:11rem; overflow:auto; margin:.2rem 0 .2rem; line-height:1.5; }
+  .turnsec { border:1px solid var(--line); border-radius:10px; margin:.55rem 0; background:var(--surface); overflow:hidden; }
+  .turnsec.open { border-color:var(--line-strong); }
+  .turnhead { display:flex; gap:.5rem; align-items:center; padding:.5rem .65rem; cursor:pointer; }
+  .turnhead:hover { background:var(--surface-2); }
+  .turnsec.open .turnhead { border-bottom:1px solid var(--line); background:var(--surface-2); }
+  .turnask { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; font-size:.88rem; }
+  .turnbody { padding:.45rem .65rem .6rem; }
   /* (A) service-harness usage chip on a step; (B) 3-Layer decision chip */
   .uchip { border-color:var(--green); color:var(--green); opacity:1; cursor:pointer; }
   .uchip:hover { background:#22a35a22; }
@@ -314,8 +314,8 @@ const el = (t, c, x) => { const n = document.createElement(t); if (c) n.classNam
 const api = (p, opt={}) => fetch(p, { ...opt, headers: { ...H, ...(opt.headers||{}) } });
 
 const state = { flows:{}, tasks:{}, steps:{}, approvals:{}, effective:{}, serviceHarness:{},
-  expanded:new Set(), expandedProjects:new Set(), loaded:new Set(), scopes:[],
-  selFlow:null, selTask:null, sel:null,
+  expandedProjects:new Set(), expandedTurns:new Set(), loaded:new Set(), scopes:[],
+  selFlow:null, sel:null,
   mode:"observe", connected:false, snapRev:0, trajMode:"category" };
 const SRC_ICON = { claude_code:"🟧", codex:"🟦" };
 const SRC_NAME = { claude_code:"claude", codex:"codex" };
@@ -430,12 +430,10 @@ async function loadSnapshot() {
   // Open the most recent session and select its latest request, so the page isn't empty.
   const recent = [...flows].filter(hasCwd).sort((a,b)=>(b.started_at||0)-(a.started_at||0))[0];
   if (recent && !state.selFlow) {
-    state.expandedProjects.add(projKey(recent));  // expand the project this session belongs to
-    state.expanded.add(recent.flow_id);
+    state.expandedProjects.add(projKey(recent));  // expand the project this conversation belongs to
     await loadTree(recent.flow_id);
-    const turn = defaultTurn(recent.flow_id);
     state.selFlow = recent.flow_id;
-    state.selTask = turn ? turn.task_id : null;
+    expandLatestTurn(recent.flow_id);
   }
   const appr = await (await api("/api/approvals")).json();
   appr.forEach(a => state.approvals[a.approval_id] = { ...a, step_id:a.step_id });
@@ -565,100 +563,90 @@ function toggleProject(key) {
   else state.expandedProjects.add(key);
   renderSidebar();
 }
-// One session (conversation) inside a project group: "[claude]/[codex] · 시간 · 상태" → requests.
+// One conversation (= a Codex/Claude Code chat thread) inside a project group. The CONVERSATION is
+// the unit: clicking it opens the whole thread (all turns) in the canvas — there is no per-request
+// sub-level in the sidebar anymore.
 function renderSession(f) {
-  const open = state.expanded.has(f.flow_id);
   const item = el("div","sessitem");
   const head = el("div","sesshead" + (state.selFlow===f.flow_id ? " cur" : ""));
-  head.append(el("span","caret", open ? "▾" : "▸"),
-    el("span","srctag " + (f.source==="codex" ? "codex" : "claude"), srcName(f)));
+  head.append(el("span","srctag " + (f.source==="codex" ? "codex" : "claude"), srcName(f)));
   const sub = el("span","sname smeta", relTime(f.started_at) + " · " + f.status);
   sub.title = f.cwd || "";
+  head.append(sub);
+  const nturns = state.loaded.has(f.flow_id) ? turnTasks(f.flow_id).length : 0;
+  if (nturns) head.append(el("span","chip", nturns + "턴"));
   const dot = el("span","dot"); dot.style.background = statusColor(f.status);
-  head.append(sub, dot);
-  head.onclick = () => toggleSession(f.flow_id);
+  head.append(dot);
+  head.onclick = () => selectConversation(f.flow_id);
   item.append(head);
-  const turns = open ? turnTasks(f.flow_id) : [];
-  if (open) {
-    item.append(el("div","sesssub muted", "요청 " + turns.length));
-    const list = el("div","reqlist");
-    if (!turns.length) list.append(el("div","muted reqempty","(요청 미관측)"));
-    // Newest request on top (turnTasks is chronological; reverse only for display).
-    [...turns].reverse().forEach(t => list.append(reqItem(f, t)));
-    item.append(list);
-  }
   return item;
 }
-function reqItem(f, t) {
-  const r = el("div","reqitem" + (state.selTask===t.task_id ? " sel" : ""));
-  const dot = el("span","dot"); dot.style.background = statusColor(t.status);
-  const txt = el("span","rtext", clip(requestLabel(t), 42)); txt.title = requestLabel(t);
-  r.append(dot, txt);
-  const n = stepCountForTask(t.task_id); if (n) r.append(el("span","chip", n + "단계"));
-  if (t.retry_count > 0) r.append(el("span","chip","⟳"+t.retry_count));
-  r.onclick = () => selectRequest(f.flow_id, t.task_id);
-  return r;
+// Expand only the latest turn by default, so opening a long conversation isn't a wall of steps.
+function expandLatestTurn(flowId) {
+  const t = defaultTurn(flowId);
+  state.expandedTurns = new Set(t ? [t.task_id] : []);
 }
-async function toggleSession(flowId) {
-  if (state.expanded.has(flowId)) { state.expanded.delete(flowId); }
-  else { state.expanded.add(flowId); if (!state.loaded.has(flowId)) await loadTree(flowId); }
-  state.selFlow = flowId;
-  // Default to the latest meaningful request when opening a session with none selected for it.
-  if (state.expanded.has(flowId) && !(state.selTask && state.tasks[state.selTask]
-        && state.tasks[state.selTask].flow_id === flowId)) {
-    const turn = defaultTurn(flowId);
-    state.selTask = turn ? turn.task_id : null;
-  }
-  renderSidebar(); renderCanvas();
-}
-async function selectRequest(flowId, taskId) {
+async function selectConversation(flowId) {
   if (!state.loaded.has(flowId)) await loadTree(flowId);
-  state.selFlow = flowId; state.selTask = taskId; state.expanded.add(flowId);
+  state.selFlow = flowId;
+  expandLatestTurn(flowId);
   renderSidebar(); renderCanvas();
 }
 
-// The canvas focuses on the one selected request: its ask, the harness that applied to it,
-// and the trajectory (what claude/codex actually did).
+// The canvas shows the WHOLE selected conversation: the project/harness header once, then each turn
+// (a user request) as a collapsible section with its trajectory. The conversation — not a single
+// request — is the unit, matching how Codex/Claude Code present a chat thread.
 function renderCanvas() {
   const c = $("#canvas"); c.replaceChildren();
-  if (!state.selFlow) { c.append(el("p","muted","왼쪽에서 세션을 펼쳐 요청을 선택하세요.")); return; }
-  const f = state.flows[state.selFlow]; if (!f) { c.append(el("p","muted","세션을 불러오는 중…")); return; }
-  if (!state.selTask) {
-    c.append(el("p","muted","이 세션의 요청을 왼쪽에서 선택하세요."));
-    c.append(renderHarnessPanel(f));
-    return;
-  }
-  const t = state.tasks[state.selTask];
-  if (!t) { c.append(el("p","muted","요청을 불러오는 중…")); return; }
+  if (!state.selFlow) { c.append(el("p","muted","왼쪽에서 대화를 선택하세요.")); return; }
+  const f = state.flows[state.selFlow]; if (!f) { c.append(el("p","muted","대화를 불러오는 중…")); return; }
 
   const view = el("div","reqview");
   const head = el("div","reqhead");
   head.append(el("span","srctag " + (f.source==="codex" ? "codex" : "claude"), srcName(f)));
   const proj = el("span","chip project","project:"+projectLabel(f)); proj.title = f.cwd || "cwd 미관측";
-  head.append(proj, el("span","chip",t.status),
-    el("span","chip",(f.total_tokens||0).toLocaleString()+" tok"));
-  if (t.retry_count > 0) head.append(el("span","chip","⟳"+t.retry_count));
+  const turns = turnTasks(f.flow_id);
+  head.append(proj, el("span","chip",f.status),
+    el("span","chip",(f.total_tokens||0).toLocaleString()+" tok"), el("span","chip", turns.length + "턴"));
   view.append(head);
 
-  // The user's request, verbatim.
-  const ask = el("div","reqask"); ask.append(el("span","reqicon","🧑 "), document.createTextNode(requestLabel(t)));
-  view.append(ask);
+  // The harnesses apply to the whole conversation's project — shown once at the top.
+  view.append(renderServicePanel(f));   // (A) external scaffolding (service harness)
+  view.append(renderHarnessPanel(f));   // (B) our 3-Layer harness
 
-  // (A) the external scaffolding (service harness) applied to this session's project.
-  view.append(renderServicePanel(f));
-  // (B) our 3-Layer harness that gated this request.
-  view.append(renderHarnessPanel(f));
-
-  // The trajectory — steps + nested subagents. Each step carries its (A) usage + (B) decision chips.
   const th = el("div","trajhead");
-  th.append(el("h2",null,"동작 내역 (시간순 ↑오래된 ↓최근)"));
+  th.append(el("h2",null,"대화 내역 — 턴(요청)별 동작"));
   const modeBtn = el("button","trajbtn", state.trajMode==="time" ? "⏱ 시간순" : "🗂 카테고리");
   modeBtn.title = "보기 전환: 시간순 ↔ 카테고리별";
   modeBtn.onclick = () => { state.trajMode = state.trajMode==="time" ? "category" : "time"; renderCanvas(); };
   th.append(el("span","grow"), modeBtn);
   view.append(th);
-  view.append(renderTrajectory(t));
+
+  // Each turn = one user request in the thread, oldest→newest (chat order); only the open ones
+  // render their (potentially long) trajectory.
+  if (!turns.length) view.append(el("p","muted","아직 동작이 없습니다."));
+  else turns.forEach(t => view.append(renderTurnSection(f, t)));
   c.append(view);
+}
+function renderTurnSection(f, t) {
+  const open = state.expandedTurns.has(t.task_id);
+  const sec = el("div","turnsec" + (open ? " open" : ""));
+  const head = el("div","turnhead");
+  head.append(el("span","caret", open ? "▾" : "▸"), el("span","reqicon","🧑"));
+  const ask = el("span","turnask", requestLabel(t)); ask.title = requestLabel(t);
+  head.append(ask);
+  const n = stepCountForTask(t.task_id); if (n) head.append(el("span","chip", n + "단계"));
+  if (t.retry_count > 0) head.append(el("span","chip","⟳"+t.retry_count));
+  const dot = el("span","dot"); dot.style.background = statusColor(t.status); head.append(dot);
+  head.onclick = () => toggleTurn(t.task_id);
+  sec.append(head);
+  if (open) { const body = el("div","turnbody"); body.append(renderTrajectory(t)); sec.append(body); }
+  return sec;
+}
+function toggleTurn(taskId) {
+  if (state.expandedTurns.has(taskId)) state.expandedTurns.delete(taskId);
+  else state.expandedTurns.add(taskId);
+  renderCanvas();
 }
 
 function renderHarnessPanel(f) {
@@ -1045,14 +1033,17 @@ function renderPending() {
   const b = $("#pending");
   if (!open.length) { b.style.display = "none"; return; }
   b.style.display = ""; b.className = "badge alert"; b.textContent = "승인 대기 " + open.length;
-  b.onclick = () => {
+  b.onclick = async () => {
     const first = open[0]; if (!first) return;
     state.sel = first.step_id; showDetail(first.step_id);
-    // Focus the session + request that owns the awaiting step.
+    // Focus the conversation that owns the awaiting step, with its turn expanded.
     const s = state.steps[first.step_id];
-    if (s) { const f = state.flows[s.flow_id]; if (f) state.expandedProjects.add(projKey(f));
-      state.expanded.add(s.flow_id); state.selFlow = s.flow_id; if (s.task_id) state.selTask = s.task_id;
-      renderSidebar(); renderCanvas(); }
+    if (s) {
+      const f = state.flows[s.flow_id]; if (f) state.expandedProjects.add(projKey(f));
+      if (!state.loaded.has(s.flow_id)) await loadTree(s.flow_id);
+      state.selFlow = s.flow_id; if (s.task_id) state.expandedTurns.add(s.task_id);
+      renderSidebar(); renderCanvas();
+    }
   };
 }
 
