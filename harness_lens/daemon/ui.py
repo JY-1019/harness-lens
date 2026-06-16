@@ -195,6 +195,15 @@ _PAGE = r"""<!DOCTYPE html>
   .turnsec.open .turnhead { border-bottom:1px solid var(--line); background:var(--surface-2); }
   .turnask { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; font-size:.88rem; }
   .turnbody { padding:.45rem .65rem .6rem; }
+  /* full user request at the top of an opened turn — collapsible so a long prompt isn't truncated */
+  .askblock { border:1px solid var(--line); border-left:3px solid var(--blue); border-radius:7px;
+              background:var(--surface-2); margin:.1rem 0 .55rem; }
+  .askhead { display:flex; align-items:center; gap:.4rem; padding:.3rem .5rem; cursor:pointer; font-size:.78rem; }
+  .askhead:hover { background:var(--surface-2); }
+  .asklabel { font-weight:600; color:var(--muted); letter-spacing:.02em; }
+  .askhint { font-size:.7rem; }
+  .asktext { padding:0 .6rem .45rem 1rem; white-space:pre-wrap; word-break:break-word; line-height:1.5; }
+  .asktext.clamp { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; padding-bottom:.4rem; }
   /* (A) service-harness usage chip on a step; (B) 3-Layer decision chip */
   .uchip { border-color:var(--green); color:var(--green); opacity:1; cursor:pointer; }
   .uchip:hover { background:#22a35a22; }
@@ -312,7 +321,7 @@ const el = (t, c, x) => { const n = document.createElement(t); if (c) n.classNam
 const api = (p, opt={}) => fetch(p, { ...opt, headers: { ...H, ...(opt.headers||{}) } });
 
 const state = { flows:{}, tasks:{}, steps:{}, approvals:{}, effective:{}, serviceHarness:{},
-  expandedProjects:new Set(), expandedTurns:new Set(), loaded:new Set(), scopes:[],
+  expandedProjects:new Set(), expandedTurns:new Set(), expandedAsks:new Set(), loaded:new Set(), scopes:[],
   selFlow:null, sel:null,
   mode:"observe", connected:false, snapRev:0, trajMode:"category" };
 const SRC_ICON = { claude_code:"🟧", codex:"🟦" };
@@ -638,12 +647,37 @@ function renderTurnSection(f, t) {
   const dot = el("span","dot"); dot.style.background = statusColor(t.status); head.append(dot);
   head.onclick = () => toggleTurn(t.task_id);
   sec.append(head);
-  if (open) { const body = el("div","turnbody"); body.append(renderTrajectory(t)); sec.append(body); }
+  if (open) {
+    const body = el("div","turnbody");
+    body.append(renderAskBlock(t));     // the full user request at the top — collapsed→preview, open→full
+    body.append(renderTrajectory(t));
+    sec.append(body);
+  }
   return sec;
 }
 function toggleTurn(taskId) {
   if (state.expandedTurns.has(taskId)) state.expandedTurns.delete(taskId);
   else state.expandedTurns.add(taskId);
+  renderCanvas();
+}
+// The user's request, shown at the top of an opened turn. Collapsed it clamps to a few lines (so a
+// very long prompt does not flood the view); expanded it shows the whole thing.
+function renderAskBlock(t) {
+  const req = requestLabel(t);
+  const expanded = state.expandedAsks.has(t.task_id);
+  const block = el("div","askblock" + (expanded ? " open" : ""));
+  const head = el("div","askhead");
+  head.append(el("span","caret", expanded ? "▾" : "▸"), el("span","asklabel","요청"),
+    el("span","grow"), el("span","muted askhint", expanded ? "접기" : "전체 보기"));
+  head.onclick = (ev) => { ev.stopPropagation(); toggleAsk(t.task_id); };
+  block.append(head);
+  const txt = el("div","asktext" + (expanded ? "" : " clamp")); txt.textContent = req;
+  block.append(txt);
+  return block;
+}
+function toggleAsk(taskId) {
+  if (state.expandedAsks.has(taskId)) state.expandedAsks.delete(taskId);
+  else state.expandedAsks.add(taskId);
   renderCanvas();
 }
 
