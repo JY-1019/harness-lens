@@ -1,17 +1,27 @@
 # harness-lens — Codex CLI integration
 
-harness-lens ships a Codex plugin manifest at [`.codex-plugin/plugin.json`](../.codex-plugin/plugin.json).
-If your Codex build supports plugin auto-load (`codex plugin install …`), installing the plugin is
-enough — it reuses the same `bin/hl` launcher and the `harness-lens hook-relay codex` / `serve`
-entrypoints described below, with `${CODEX_PLUGIN_ROOT}` pointing at the installed plugin.
+**Recommended (Codex 0.140+ plugin system — verified on 0.140.0):** install the plugin. It carries
+the hooks, MCP server, and skill, plus a SessionStart hook that auto-starts the daemon.
 
-If your Codex version does **not** yet auto-load plugin hooks/MCP, wire it manually once with the two
-snippets below. Replace `PLUGIN_DIR` with this repo/plugin's absolute path (the directory that holds
-`bin/hl` and `pyproject.toml`); under a real plugin install that is `${CODEX_PLUGIN_ROOT}`.
+```sh
+codex plugin marketplace add JY-1019/harness-lens     # or a local path to this repo
+codex plugin add harness-lens@harness-lens
+```
 
-The launcher resolves the platform itself: `bin/hl relay` becomes `hook-relay codex` whenever
-`CODEX_PLUGIN_ROOT` is set or `HARNESS_LENS_PLATFORM=codex`, so the commands below are explicit for
-the manual (non-plugin) case.
+The Codex plugin lives at [`plugins/harness-lens/`](../plugins/harness-lens) (manifest
+`.codex-plugin/plugin.json`, hooks `hooks.json`, MCP `.mcp.json`, launcher `bin/hl`); the marketplace
+manifest is [`.agents/plugins/marketplace.json`](../.agents/plugins/marketplace.json). Codex resolves
+`${CODEX_PLUGIN_ROOT}` to the installed copy, and the launcher fetches the package from git via
+`uvx` (the plugin installs as an isolated directory, so it can't reuse the repo's bundled venv).
+Command hooks must be trusted once via `/hooks` (or run Codex with `--dangerously-bypass-hook-trust`
+for automation).
+
+---
+
+## Manual fallback (older Codex without the plugin system)
+
+Wire `~/.codex/` by hand with the two snippets below. Replace `PLUGIN_DIR` with an absolute path to a
+checkout of this repo (the directory holding `bin/hl` and `pyproject.toml`).
 
 ## 1. MCP server — `~/.codex/config.toml`
 

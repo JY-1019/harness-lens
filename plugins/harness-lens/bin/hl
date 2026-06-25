@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# harness-lens Codex plugin launcher.
+#
+# A Codex plugin is installed as an isolated subdirectory that does NOT carry the Python source
+# (unlike the Claude plugin at the repo root, whose launcher runs the bundled package via uv). So
+# this launcher fetches the package from git via uvx — pinnable by the @ref, cached by uvx after
+# the first run.
+set -euo pipefail
+SPEC="${HARNESS_LENS_UVX_FROM:-harness-lens[all] @ git+https://github.com/JY-1019/harness-lens}"
+
+# `relay` is a platform-agnostic alias → `hook-relay codex` for this (Codex) plugin.
+if [ "${1:-}" = "relay" ]; then shift; set -- hook-relay codex "$@"; fi
+
+exec uvx --from "$SPEC" harness-lens "$@"

@@ -63,9 +63,17 @@ queue) — no `harness-lens install` step and no global settings to hand-edit.
 The `bin/hl` launcher runs the bundled Python package via `uv`; a `.venv` is synced inside
 the plugin on first use (offline afterwards, pinned to the committed source).
 
-**Codex CLI:** see [`codex/SETUP.md`](codex/SETUP.md) — install the plugin
-(`.codex-plugin/plugin.json`), or apply the `~/.codex/config.toml` + `~/.codex/hooks.json`
-snippets there.
+**Codex CLI** (Codex 0.140+ plugin system — `.agents/plugins/marketplace.json` +
+`plugins/harness-lens/`):
+
+```text
+codex plugin marketplace add JY-1019/harness-lens
+codex plugin add harness-lens@harness-lens
+```
+
+The Codex plugin's launcher fetches the package via `uvx` (the plugin installs as an isolated
+directory). For older Codex builds, [`codex/SETUP.md`](codex/SETUP.md) has the manual
+`~/.codex/config.toml` + `~/.codex/hooks.json` wiring.
 
 ### Alternative: CLI installer
 

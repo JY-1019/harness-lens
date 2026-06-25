@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "harness-lens": {
+      "type": "stdio",
+      "command": "${CODEX_PLUGIN_ROOT}/bin/hl",
+      "args": ["serve"]
+    }
+  }
+}

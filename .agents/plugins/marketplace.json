@@ -1,0 +1,12 @@
+{
+  "name": "harness-lens",
+  "interface": { "displayName": "harness-lens" },
+  "plugins": [
+    {
+      "name": "harness-lens",
+      "source": { "source": "local", "path": "./plugins/harness-lens" },
+      "policy": { "installation": "AVAILABLE" },
+      "category": "Productivity"
+    }
+  ]
+}

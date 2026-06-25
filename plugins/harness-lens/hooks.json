@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "${CODEX_PLUGIN_ROOT}/bin/hl daemon start >/dev/null 2>&1 || true", "timeout": 25 },
+          { "type": "command", "command": "${CODEX_PLUGIN_ROOT}/bin/hl hook-relay codex", "timeout": 10 }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "${CODEX_PLUGIN_ROOT}/bin/hl hook-relay codex", "timeout": 15 } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": ".*", "hooks": [ { "type": "command", "command": "${CODEX_PLUGIN_ROOT}/bin/hl hook-relay codex", "timeout": 90 } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": ".*", "hooks": [ { "type": "command", "command": "${CODEX_PLUGIN_ROOT}/bin/hl hook-relay codex", "timeout": 15 } ] }
+    ],
+    "SubagentStop": [
+      { "hooks": [ { "type": "command", "command": "${CODEX_PLUGIN_ROOT}/bin/hl hook-relay codex", "timeout": 90 } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "${CODEX_PLUGIN_ROOT}/bin/hl hook-relay codex", "timeout": 90 } ] }
+    ]
+  }
+}
