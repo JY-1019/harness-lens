@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -22,8 +24,8 @@ from .. import enforce as enforce_mod
 from .. import home_dir
 from ..components import ComponentManager
 from ..criteria import DEFAULT_CRITERIA_YAML, ThreeLayerCriteria
-from ..detector import Platform, detect
-from ..skill import install_skill
+from ..detector import Platform, detect, detect_all
+from ..skill import install_skill, skill_path
 from ..store import SQLiteStore
 
 # How hooks/MCP invoke harness-lens. Overridable for local/dev installs.
@@ -358,6 +360,115 @@ def install(platform_name: Optional[str] = None, launcher=DEFAULT_LAUNCHER, root
         skill_path=skill_file,
         enforced_path=enforced,
     )
+
+
+# ---- uninstall (migration to the plugin model) ----------------------------------------------------
+def _strip_harness(doc: dict) -> tuple[dict, list[str]]:
+    """Remove harness-lens hook entries + the ``mcpServers.harness-lens`` entry from a Claude
+    ``settings.json`` / Codex ``hooks.json`` document. Returns ``(cleaned, removed_labels)``.
+
+    Every hook command harness-lens ever wrote contains the literal ``harness-lens`` (the uvx
+    ``--from`` spec + the ``harness-lens hook``/``hook-relay`` subcommand), so matching on that
+    substring removes exactly the installer's entries and leaves the user's own hooks untouched.
+    Plugin hooks live in the plugin's own ``hooks.json`` (never merged into settings.json), so
+    this only ever strips the legacy CLI-installer footprint.
+    """
+    merged = json.loads(json.dumps(doc)) if doc else {}
+    removed: list[str] = []
+    hooks = merged.get("hooks")
+    if isinstance(hooks, dict):
+        for event in list(hooks.keys()):
+            bucket = hooks.get(event) or []
+            kept = [e for e in bucket if "harness-lens" not in _command_of(e)]
+            if len(kept) != len(bucket):
+                removed.append(event)
+            if kept:
+                hooks[event] = kept
+            else:
+                del hooks[event]
+        if not hooks:
+            merged.pop("hooks", None)
+    servers = merged.get("mcpServers")
+    if isinstance(servers, dict) and "harness-lens" in servers:
+        del servers["harness-lens"]
+        removed.append("mcpServers.harness-lens")
+        if not servers:
+            merged.pop("mcpServers", None)
+    return merged, removed
+
+
+@dataclass
+class UninstallReport:
+    platform: str
+    settings_path: Path
+    removed: list[str] = field(default_factory=list)
+    settings_backup: Optional[Path] = None
+    skill_removed: Optional[Path] = None
+    instruction_cleaned: Optional[Path] = None
+
+    def render(self) -> str:
+        if not (self.removed or self.skill_removed or self.instruction_cleaned):
+            return f"✓ {self.platform}: no harness-lens host integration found (nothing to remove)"
+        lines = [f"✓ {self.platform}: removed harness-lens host integration"]
+        if self.removed:
+            lines.append(f"   hooks/mcp : {', '.join(self.removed)}  ({self.settings_path})")
+        if self.settings_backup:
+            lines.append(f"   backup    : {self.settings_backup}")
+        if self.skill_removed:
+            lines.append(f"   skill     : {self.skill_removed.parent}")
+        if self.instruction_cleaned:
+            lines.append(f"   3-layer   : stripped managed block from {self.instruction_cleaned}")
+        return "\n".join(lines)
+
+
+def uninstall(
+    platform_name: Optional[str] = None,
+    root: Optional[Path] = None,
+    keep_skill: bool = False,
+    keep_instructions: bool = False,
+) -> list[UninstallReport]:
+    """Remove harness-lens host integration so the plugin can own it (no double-firing).
+
+    The old ``install`` merged hooks + an ``mcpServers`` entry into ``~/.claude/settings.json``
+    (or ``~/.codex/hooks.json``), dropped a SKILL wrapper, and wrote a 3-Layer block into
+    CLAUDE.md / AGENTS.md. The plugin now provides hooks/MCP/skill itself, so those host edits
+    must be undone or every tool call is relayed twice. The ``~/.harness-lens/`` runtime (ledger,
+    criteria, daemon) is intentionally left intact. Each modified file is backed up first.
+    """
+    root = root or home_dir()
+    platforms = [detect(platform_name)] if platform_name else detect_all()
+    reports: list[UninstallReport] = []
+    for platform in platforms:
+        if platform is None:
+            continue
+        sp = platform.settings_path
+        cleaned, removed = _strip_harness(_load_json(sp))
+        rep = UninstallReport(platform=platform.label, settings_path=sp, removed=removed)
+        if removed and sp.exists():
+            edit = ComponentManager(root).apply(
+                "hooks", sp, json.dumps(cleaned, indent=2, ensure_ascii=False) + "\n"
+            )
+            rep.settings_backup = edit.backup_path
+        if not keep_skill:
+            spath = skill_path(platform)
+            if spath.exists():
+                shutil.rmtree(spath.parent, ignore_errors=True)
+                rep.skill_removed = spath
+        if not keep_instructions:
+            instr = enforce_mod.instruction_target(platform)
+            if instr.exists():
+                text = instr.read_text(encoding="utf-8")
+                stripped = enforce_mod.strip_block(text)
+                if stripped != text:
+                    # The instruction file isn't a registered editable component, so back it up
+                    # by hand (timestamped) before writing the stripped content.
+                    backups = root / "backups"
+                    backups.mkdir(parents=True, exist_ok=True)
+                    (backups / f"{instr.name}.{int(time.time())}.bak").write_text(text, encoding="utf-8")
+                    instr.write_text(stripped, encoding="utf-8")
+                    rep.instruction_cleaned = instr
+        reports.append(rep)
+    return reports
 
 
 def _install_codex(platform: Platform, launcher, root: Path, created: list[str]) -> InstallReport:

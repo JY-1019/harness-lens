@@ -85,6 +85,39 @@ def cmd_install(args) -> int:
     return 0
 
 
+def cmd_uninstall(args) -> int:
+    # Migration path to the plugin: strip the hooks + MCP entry the old `install` merged into the
+    # host settings so the plugin's own hooks don't double-fire. Runtime is kept unless --purge.
+    from .hooks.install import uninstall
+
+    reports = uninstall(
+        platform_name=args.platform,
+        keep_skill=args.keep_skill,
+        keep_instructions=args.keep_instructions,
+    )
+    if not reports:
+        print("No Claude Code / Codex install detected — nothing to remove.")
+        return 0
+    for rep in reports:
+        print(rep.render())
+    if args.purge:
+        import shutil
+
+        from . import home_dir
+        from .daemon import runner
+
+        runner.stop()
+        shutil.rmtree(home_dir(), ignore_errors=True)
+        print(f"\npurged runtime: {home_dir()}")
+    else:
+        print("\nruntime kept at ~/.harness-lens/ (ledger · criteria · daemon) — use --purge to remove it too")
+    print(
+        "\nnext: install the plugin →  /plugin marketplace add JY-1019/harness-lens"
+        "  →  /plugin install harness-lens@harness-lens"
+    )
+    return 0
+
+
 def cmd_daemon(args) -> int:
     from .daemon import runner
 
@@ -567,6 +600,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_install.add_argument("--enforce", action="store_true", help="install daemon hooks in enforce mode")
     p_install.add_argument("--observe", action="store_true", help="install daemon hooks in observe mode")
     p_install.set_defaults(func=cmd_install)
+
+    p_uninstall = sub.add_parser("uninstall", help="remove harness-lens host integration (migrate to the plugin)")
+    p_uninstall.add_argument("--platform", default=None, help="force a platform id (default: all detected)")
+    p_uninstall.add_argument("--keep-skill", action="store_true", help="keep the SKILL wrapper file(s)")
+    p_uninstall.add_argument("--keep-instructions", action="store_true", help="keep the 3-Layer block in CLAUDE.md/AGENTS.md")
+    p_uninstall.add_argument("--purge", action="store_true", help="also stop the daemon and delete the ~/.harness-lens runtime")
+    p_uninstall.set_defaults(func=cmd_uninstall)
 
     p_daemon = sub.add_parser("daemon", help="run/stop/inspect the control-plane daemon")
     p_daemon.add_argument("daemon_action", choices=["start", "stop", "status"],
