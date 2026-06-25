@@ -239,6 +239,92 @@ class DaemonRuntime:
         self.save_scopes(scopes)
         return {"cwd": cwd, "override": override, "mode": override or self.config.mode}
 
+    # -- harness export / apply (portable per-project preset) ------------ #
+    def export_harness(self, cwd: Optional[str] = None, session_id: Optional[str] = None,
+                       kind: str = "effective") -> dict:
+        """A project's harness as a flat, portable policy dict (the .harness-lens/policy.yaml shape).
+
+        ``kind="effective"`` (default) is the fully-resolved, self-contained harness (base + repo +
+        scope) — drop it into another project and it reproduces the same behaviour. ``kind="project"``
+        is only what this project ADDS over the global base (repo policy + personal scope)."""
+        e = self.effective_criteria_payload(cwd=cwd, session_id=session_id)
+        repo = e.get("repo_policy") or {}
+        scope = e.get("scope") or {}
+        if kind == "project":
+            invariants = list(dict.fromkeys(
+                (repo.get("add_invariants") or []) + (scope.get("add_invariants") or [])))
+            dcs = (repo.get("add_domain_criteria") or []) + (scope.get("add_domain_criteria") or [])
+            layer3 = {**(repo.get("layer3") or {}), **(scope.get("layer3") or {})}
+            mode = scope.get("mode") or repo.get("mode")
+        else:
+            invariants, dcs, layer3, mode = e["invariants"], e["domain_criteria"], e["layer3"], e["mode"]
+        name = (repo.get("name") or scope.get("name")
+                or ((Path(cwd).name + "-harness") if cwd else "harness"))
+        policy: dict = {
+            "name": name,
+            "invariants": list(invariants),
+            "domain_criteria": [
+                {"id": d.get("id"), "description": d.get("description"), "weight": d.get("weight", 1)}
+                for d in dcs if isinstance(d, dict) and d.get("description")
+            ],
+            "layer3": dict(layer3 or {}),
+        }
+        if mode:
+            policy["mode"] = mode
+        return policy
+
+    def apply_harness(self, cwd: str, policy: dict, target: str = "repo") -> dict:
+        """Apply a flat policy dict to a project. ``target="repo"`` writes the committed, swappable
+        ``<cwd>/.harness-lens/policy.yaml`` (auto-picked up); ``target="scope"`` installs it as a
+        personal exact-cwd scope in the home criteria. Returns what was applied."""
+        cwd = (cwd or "").strip()
+        if not cwd:
+            raise ValueError("cwd required")
+        if not isinstance(policy, dict):
+            raise ValueError("policy must be a mapping")
+        flat: dict = {
+            "name": str(policy.get("name") or (Path(cwd).name + "-harness")),
+            "invariants": [str(i) for i in (policy.get("invariants") or []) if str(i).strip()],
+            "domain_criteria": [
+                {k: d[k] for k in ("id", "description", "weight") if k in d}
+                for d in (policy.get("domain_criteria") or [])
+                if isinstance(d, dict) and str(d.get("description", "")).strip()
+            ],
+            "layer3": policy.get("layer3") if isinstance(policy.get("layer3"), dict) else {},
+        }
+        if policy.get("mode") in MODES:
+            flat["mode"] = policy["mode"]
+        # A compiled policy carries a `compiled:` annotation (how each rule is enforced). Preserve it
+        # on the repo write so the imported policy.yaml documents the compilation; the repo-policy
+        # loader ignores unknown keys, so it stays a valid, working policy.
+        if isinstance(policy.get("compiled"), list):
+            flat["compiled"] = policy["compiled"]
+        # `detectors:` is the section the policy engine actually loads to gate (escalate); preserve it
+        # so importing a compiled policy promotes its verified detectors into the project's harness.
+        if isinstance(policy.get("detectors"), list):
+            flat["detectors"] = policy["detectors"]
+
+        if target == "repo":
+            path = Path(cwd) / ".harness-lens" / "policy.yaml"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(yaml.safe_dump(flat, allow_unicode=True, sort_keys=False), encoding="utf-8")
+            self._repo_cache.clear()  # force re-discovery/read of the just-written file
+            self.bus.publish("criteria_changed", data=self.criteria_payload())
+            return {"target": "repo", "path": str(path), "name": flat["name"]}
+        if target == "scope":
+            raw = {"name": flat["name"], "match": {"cwd": cwd},
+                   "add_invariants": flat["invariants"], "add_domain_criteria": flat["domain_criteria"],
+                   "layer3": flat["layer3"]}
+            if "mode" in flat:
+                raw["mode"] = flat["mode"]
+            if "detectors" in flat:
+                raw["detectors"] = flat["detectors"]
+            scopes = [s for s in self.scopes_payload() if (s.get("match") or {}).get("cwd") != cwd]
+            scopes.append(raw)
+            self.save_scopes(scopes)
+            return {"target": "scope", "name": flat["name"]}
+        raise ValueError("target must be 'repo' or 'scope'")
+
     # -- base 3-Layer editing (GUI/API) ---------------------------------- #
     def criteria_payload(self) -> dict:
         """The global base 3-Layer criteria as plain data for the harness editor."""
@@ -254,6 +340,10 @@ class DaemonRuntime:
                 for dc in criteria.domain_criteria
             ],
             "layer3": criteria.qa.config.as_dict(),
+            "detectors": [
+                {"layer": d.layer, "rule": d.rule, "regex": d.regex}
+                for d in (getattr(criteria, "generated_detectors", []) or [])
+            ],
         }
 
     def effective_criteria_payload(
@@ -299,6 +389,7 @@ class DaemonRuntime:
             "added_domain_criteria_count": len(scope.get("add_domain_criteria") or []),
             "repo_invariants_count": len(repo.get("add_invariants") or []),
             "repo_domain_criteria_count": len(repo.get("add_domain_criteria") or []),
+            "generated_detectors_count": len(effective.get("detectors") or []),
         }
 
     def flow_payload(self, flow: Flow) -> dict:
@@ -416,6 +507,29 @@ class DaemonRuntime:
         self.reload_criteria()
         self.bus.publish("criteria_changed", data=self.criteria_payload())
         return self.criteria_payload()
+
+    def compile_criteria(self, invariants=None, domain_criteria=None, name=None) -> dict:
+        """Classify the current (or given) L1/L2 rules into deterministic-detector vs semantic-advisory.
+
+        Authoring-time helper — **not** the hook path. It may call an LLM via the host Claude Code /
+        Codex CLI (see :mod:`harness_lens.compiler`), so the caller must run it off the event loop
+        (the daemon offloads it to a thread). It is read-only: it never mutates ``criteria.yaml``.
+        Besides the per-rule report it bundles an exportable ``policy`` (+ rendered ``yaml``) so the
+        GUI can download the compiled result and import it into a project's ``.harness-lens/policy.yaml``.
+        """
+        from ..compiler import classify_rules, compiled_policy
+
+        base = self.criteria_payload()
+        inv = invariants if isinstance(invariants, list) else base["invariants"]
+        dcs = domain_criteria if isinstance(domain_criteria, list) else base["domain_criteria"]
+        report = classify_rules(
+            [str(x) for x in inv],
+            [d for d in dcs if isinstance(d, dict)],
+        )
+        policy = compiled_policy(report["rules"], name=str(name) if name else "compiled-harness")
+        report["policy"] = policy
+        report["yaml"] = yaml.safe_dump(policy, allow_unicode=True, sort_keys=False)
+        return report
 
     def _cwd_of(self, event: HarnessEvent) -> Optional[str]:
         cwd = event.cwd

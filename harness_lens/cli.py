@@ -569,11 +569,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_install.set_defaults(func=cmd_install)
 
     p_daemon = sub.add_parser("daemon", help="run/stop/inspect the control-plane daemon")
-    p_daemon.add_argument("daemon_action", choices=["start", "stop", "status"])
+    p_daemon.add_argument("daemon_action", choices=["start", "stop", "status"],
+                          help="start, stop, or check the control-plane daemon")
     p_daemon.set_defaults(func=cmd_daemon)
 
     p_mode = sub.add_parser("mode", help="switch the daemon between observe/enforce at runtime")
-    p_mode.add_argument("mode", choices=["observe", "enforce"])
+    p_mode.add_argument("mode", choices=["observe", "enforce"],
+                        help="observe (record only) or enforce (deny/escalate)")
     p_mode.set_defaults(func=cmd_mode)
 
     sub.add_parser("approvals", help="resolve pending escalations from the terminal").set_defaults(func=cmd_approvals)
@@ -590,7 +592,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_show = sub.add_parser("show", help="recent Flows (or a single Flow tree)")
     p_show.add_argument("flow", nargs="?", default=None, help="a flow_id to show in full (daemon ledger)")
     p_show.add_argument("--fail", action="store_true", help="only failed Flows")
-    p_show.add_argument("--limit", type=int, default=20)
+    p_show.add_argument("--limit", type=int, default=20, help="max Flows to list (default: 20)")
     p_show.set_defaults(func=cmd_show)
 
     p_harness = sub.add_parser("harness", help="inspect the harness applied to a project")
@@ -623,7 +625,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("serve", help="run the MCP server").set_defaults(func=cmd_serve)
 
     p_gui = sub.add_parser("gui", help="launch the local web GUI (monitor + edit the 3-Layer harness)")
-    p_gui.add_argument("--port", type=int, default=8765, help="localhost port (default: 8765)")
+    p_gui.add_argument("--port", type=int, default=8765,
+                       help="legacy-GUI port (default: 8765); when the daemon is up, opens its :7700 /ui instead")
     p_gui.add_argument("--no-browser", action="store_true", help="don't auto-open the browser")
     p_gui.set_defaults(func=cmd_gui)
 

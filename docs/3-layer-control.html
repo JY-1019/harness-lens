@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>harness-lens · 3-Layer 제어 구조 — Claude Code / Codex 강제 방식</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --ink:#e6edf3; --muted:#9da7b3;
+    --line:#2a3441; --accent:#58a6ff; --accent2:#a371f7; --green:#3fb950; --amber:#d29922;
+    --red:#f85149; --cyan:#39c5cf; --code:#0b0f15;
+    --l1:#f85149; --l2:#d29922; --l3:#3fb950;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+    line-height:1.7; font-size:15.5px;
+  }
+  .wrap{display:grid; grid-template-columns:268px 1fr; max-width:1280px; margin:0 auto; gap:0;}
+  nav.toc{
+    position:sticky; top:0; align-self:start; height:100vh; overflow-y:auto;
+    padding:26px 18px; border-right:1px solid var(--line); background:var(--panel);
+  }
+  nav.toc h2{font-size:13px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin:18px 0 8px;}
+  nav.toc a{display:block; color:var(--muted); text-decoration:none; padding:4px 10px; border-radius:6px; font-size:13.5px;}
+  nav.toc a:hover{color:var(--ink); background:var(--panel2);}
+  nav.toc .brand{font-weight:700; font-size:16px; color:var(--ink); margin-bottom:4px;}
+  nav.toc .brand span{color:var(--accent);}
+  nav.toc .tag{font-size:11.5px; color:var(--muted);}
+  main{padding:40px 48px 120px; min-width:0;}
+  h1{font-size:30px; line-height:1.25; margin:0 0 6px; letter-spacing:-.01em;}
+  h1 small{display:block; font-size:15px; color:var(--muted); font-weight:400; margin-top:10px; line-height:1.6;}
+  h2{font-size:23px; margin:54px 0 14px; padding-bottom:10px; border-bottom:1px solid var(--line); letter-spacing:-.01em;}
+  h3{font-size:18px; margin:32px 0 10px; color:var(--ink);}
+  h4{font-size:15px; margin:22px 0 8px; color:var(--cyan); letter-spacing:.01em;}
+  p{margin:10px 0;}
+  a{color:var(--accent);}
+  code{font-family:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,monospace; font-size:.9em;
+    background:var(--code); border:1px solid var(--line); border-radius:5px; padding:1px 5px; color:#cdd9e5;}
+  pre{background:var(--code); border:1px solid var(--line); border-radius:10px; padding:16px 18px; overflow-x:auto;
+    font-family:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,monospace; font-size:13px; line-height:1.6;}
+  pre code{background:none; border:none; padding:0;}
+  .muted{color:var(--muted);}
+  .lead{font-size:16.5px; color:#c9d3de;}
+  .note{border:1px solid var(--line); border-left:4px solid var(--accent); background:var(--panel);
+    border-radius:8px; padding:12px 16px; margin:16px 0;}
+  .note.warn{border-left-color:var(--amber);}
+  .note.danger{border-left-color:var(--red);}
+  .note.ok{border-left-color:var(--green);}
+  .note .h{font-weight:700; margin-bottom:2px;}
+  .chip{display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; font-weight:700; vertical-align:middle;}
+  .c-l1{background:rgba(248,81,73,.16); color:#ff7b72; border:1px solid rgba(248,81,73,.4);}
+  .c-l2{background:rgba(210,153,34,.16); color:#e3b341; border:1px solid rgba(210,153,34,.4);}
+  .c-l3{background:rgba(63,185,80,.16); color:#56d364; border:1px solid rgba(63,185,80,.4);}
+  .c-obs{background:rgba(57,197,207,.14); color:#56d4dd; border:1px solid rgba(57,197,207,.4);}
+  .c-enf{background:rgba(163,113,247,.16); color:#bc8cff; border:1px solid rgba(163,113,247,.4);}
+  table{border-collapse:collapse; width:100%; margin:16px 0; font-size:13.5px;}
+  th,td{border:1px solid var(--line); padding:9px 12px; text-align:left; vertical-align:top;}
+  th{background:var(--panel2); color:var(--ink); font-weight:700;}
+  td code{font-size:12px;}
+  tr:nth-child(even) td{background:rgba(255,255,255,.012);}
+  .tk-yes{color:var(--green); font-weight:700;}
+  .tk-no{color:var(--red); font-weight:700;}
+  .tk-part{color:var(--amber); font-weight:700;}
+  .layers{display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin:18px 0;}
+  .lcard{border:1px solid var(--line); border-radius:12px; padding:16px; background:var(--panel);}
+  .lcard.l1{border-top:4px solid var(--l1);}
+  .lcard.l2{border-top:4px solid var(--l2);}
+  .lcard.l3{border-top:4px solid var(--l3);}
+  .lcard h3{margin:2px 0 8px; font-size:16px;}
+  .lcard .role{font-size:12.5px; color:var(--muted); margin-bottom:10px;}
+  .lcard ul{margin:8px 0 0; padding-left:18px; font-size:13px;}
+  .lcard li{margin:4px 0;}
+  .flow{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; margin:18px 0; overflow-x:auto;}
+  .flow pre{background:none; border:none; padding:0; color:#c9d3de; font-size:12.5px; line-height:1.55;}
+  .pills{display:flex; gap:8px; flex-wrap:wrap; margin:10px 0;}
+  .pill{font-size:12px; padding:3px 10px; border-radius:6px; border:1px solid var(--line); background:var(--panel2); color:var(--muted);}
+  .filemap code{display:block; padding:6px 10px; margin:3px 0;}
+  footer{margin-top:60px; padding-top:20px; border-top:1px solid var(--line); color:var(--muted); font-size:13px;}
+  @media (max-width:900px){ .wrap{grid-template-columns:1fr;} nav.toc{position:static; height:auto; border-right:none; border-bottom:1px solid var(--line);} main{padding:24px;} .layers{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav class="toc">
+  <div class="brand">harness<span>-</span>lens</div>
+  <div class="tag">3-Layer 제어 구조 / 강제 메커니즘</div>
+  <h2>목차</h2>
+  <a href="#intro">0. 한눈에 보기</a>
+  <a href="#model">1. 3-Layer 모델</a>
+  <a href="#l1">1.1 Layer 1 — Invariants</a>
+  <a href="#l2">1.2 Layer 2 — Domain</a>
+  <a href="#l3">1.3 Layer 3 — QA</a>
+  <a href="#guard">1.4 CriteriaGuard</a>
+  <a href="#apply">2. 적용 경로 2가지</a>
+  <a href="#pathA">2.1 명령어 블록 렌더링</a>
+  <a href="#pathB">2.2 데몬 런타임 제어</a>
+  <a href="#pipeline">3. 의사결정 파이프라인</a>
+  <a href="#modes">4. observe vs enforce</a>
+  <a href="#claude">5. Claude Code 강제</a>
+  <a href="#codex">6. Codex 강제</a>
+  <a href="#downgrade">7. 능력 다운그레이드·승인</a>
+  <a href="#governance">8. 팀 거버넌스(repo 정책)</a>
+  <a href="#scope">9. Scope 합성·해석</a>
+  <a href="#failsafe">10. Fail-open·토큰·마스킹</a>
+  <a href="#selfblock">11. 자기 차단 사례</a>
+  <a href="#files">12. 파일 맵</a>
+</nav>
+
+<main>
+
+<h1 id="intro">harness-lens 3-Layer 제어 구조
+  <small>
+    Claude Code · Codex CLI 라는 <strong>블랙박스 하네스</strong> 위에서, harness-lens 가 <strong>외부 하네스(External Harness)</strong>로서
+    3개 Layer 의 거버넌스를 어떻게 <em>적용(apply)</em>하고 어떻게 <em>강제(enforce)</em>하는지 — 코드 수준까지 구체적으로 기술한 문서.
+    기준 브랜치: <code>feat/repo-policy</code> · 최신 커밋 <code>a559a98 feat: team governance Phase 1</code>.
+  </small>
+</h1>
+
+<p class="lead">
+harness-lens 는 에이전트(Claude Code / Codex)의 <strong>내부 시스템 프롬프트·툴·미들웨어</strong>를 직접 건드리지 않는다.
+그 대신 에이전트가 실제로 따르게 되는 <strong>외부 스캐폴딩</strong>(지시 파일, 훅 흐름, 자체 코드)을 자신의 통제면으로 삼고,
+거버넌스를 <strong>Layer 1 / Layer 2 / Layer 3</strong> 세 층으로 나눠 관리한다. 본 문서는 이 세 층이
+(1) 어떤 데이터로 정의되는지, (2) 어떻게 <em>지시 파일</em>과 <em>런타임 훅 데몬</em> 두 경로로 적용되는지,
+(3) Claude Code 와 Codex 각각에서 어떤 출력 스키마로 <em>차단(deny)/에스컬레이션(ask)/허용(allow)</em>이 강제되는지를 다룬다.
+</p>
+
+<div class="note">
+  <div class="h">핵심 한 줄</div>
+  관리 대상은 <strong>CLAUDE.md / AGENTS.md(≈ 시스템 프롬프트)</strong>, <strong>훅 설정(≈ 미들웨어)</strong>, <strong>harness-lens 자체 코드</strong> 뿐.
+  에이전트의 내부 프롬프트/툴은 절대 수정 대상이 아니다. <span class="chip c-l1">L1</span> 은 절대 불변, <span class="chip c-l2">L2</span> 는 제안만,
+  <span class="chip c-l3">L3</span> 만 자동 진화(AHE) 가능.
+</div>
+
+<h2 id="model">1. 3-Layer 모델 — 무엇이 정의되는가</h2>
+
+<p>
+세 층은 단일 YAML(개인 베이스는 <code>~/.harness-lens/criteria.yaml</code>, 팀 정책은 <code>&lt;repo&gt;/.harness-lens/policy.yaml</code>)에서 선언되고,
+<code>ThreeLayerCriteria.load()</code> (<code>harness_lens/criteria/layer.py</code>) 가 이를 <code>invariants</code> / <code>domain_criteria</code> / <code>qa</code> 세 객체로 로드한다.
+</p>
+
+<div class="layers">
+  <div class="lcard l1">
+    <h3><span class="chip c-l1">L1</span> Invariants</h3>
+    <div class="role">절대 위반 금지 · 결정론적(LLM 無)</div>
+    <ul>
+      <li>자연어 규칙 문자열의 리스트</li>
+      <li>키워드로 <strong>내장 detector</strong>에 매핑되어 정규식/구조 검사</li>
+      <li>enforce: <strong>DENY</strong> / observe: 기록만</li>
+      <li>AHE 수정 <strong>영원히 불가</strong></li>
+      <li>detector 없는 규칙 = advisory(스스로 차단 불가)</li>
+    </ul>
+  </div>
+  <div class="lcard l2">
+    <h3><span class="chip c-l2">L2</span> Domain criteria</h3>
+    <div class="role">행동/프로세스 기준 · LLM Judge + 구조 검사</div>
+    <ul>
+      <li><code>{id, description, judge_prompt, weight}</code></li>
+      <li>비동기 <strong>LLM Judge</strong>가 <code>{"pass":bool}</code>로 채점</li>
+      <li>동기 제어 경로에선 <strong>구조 detector</strong>가 의심 시 <strong>ESCALATE</strong></li>
+      <li>enforce 에서만 차단/에스컬레이션</li>
+      <li>AHE 는 <strong>제안만</strong>, 자동 적용 불가</li>
+    </ul>
+  </div>
+  <div class="lcard l3">
+    <h3><span class="chip c-l3">L3</span> QA thresholds</h3>
+    <div class="role">품질 한계선 · 유일한 진화 가능 층</div>
+    <ul>
+      <li><code>retry_threshold</code>, <code>latency_multiplier</code>,<br><code>failure_count_trigger</code>, <code>quality_threshold</code></li>
+      <li>개별 step 을 <strong>차단하지 않음</strong></li>
+      <li>누적 QA 상태로 <strong>회로 차단기</strong>(enforce) 구동</li>
+      <li>실패 패턴을 묶어 Debugger 에 공급</li>
+      <li>사용자/AHE 가 <strong>유일하게</strong> 바꿀 수 있는 층(범위 검증)</li>
+    </ul>
+  </div>
+</div>
+
+<h4>이 저장소(<code>.harness-lens/policy.yaml</code>)에서 실제로 켜진 규칙</h4>
+<pre><code>name: harness-lens-governance
+
+invariants:                       # ── Layer 1 (detector-backed → 실제 gate)
+  - "비밀키·토큰·크리덴셜을 코드에 하드코딩하지 않는다"        # → _secret_hardcode
+  - "force-push 로 보호 브랜치 히스토리를 덮어쓰지 않는다 …"   # → _force_push
+
+domain_criteria:                  # ── Layer 2 (구조 검사 backed)
+  - id: HL-001  "파일 수정 전 현재 내용을 먼저 읽는다"           weight: 1.5
+  - id: HL-002  "동작을 바꾸는 변경은 회귀 테스트를 동반한다"     weight: 1.5
+  - id: HL-003  "CI 검증을 우회하지 않는다"                      weight: 1.0
+
+layer3:                           # ── Layer 3 (회로 차단기 + 모니터링)
+  failure_count_trigger: 3
+  retry_threshold: 3
+  quality_threshold: 0.85</code></pre>
+
+<!-- ================= LAYER 1 ================= -->
+<h3 id="l1"><span class="chip c-l1">Layer 1</span> Invariants — 결정론적 차단</h3>
+<p>
+규칙은 사람이 읽는 자연어로 두되, 강제는 결정론적으로 한다. <code>InvariantChecker</code>
+(<code>harness_lens/criteria/invariant.py</code>)는 각 규칙 문자열을 <strong>키워드 → detector</strong> 매핑표(<code>_RULE_DETECTORS</code>)로 훑어
+첫 매칭 detector 하나를 고르고, step 의 합쳐진 텍스트(<code>tool_name + input + output</code>)에서 위반 증거를 찾으면
+<code>InvariantViolation(rule, detail)</code>을 반환한다. <strong>detector 가 증거(매칭된 조각)를 그대로 돌려주므로</strong> GUI 가 "무엇이 어디서 걸렸는지"를 보여준다.
+</p>
+
+<table>
+  <thead><tr><th>키워드(규칙 문구에 포함되면)</th><th>detector</th><th>탐지 정규식(요지)</th></tr></thead>
+  <tbody>
+    <tr><td><code>개인정보 / pii / 카드번호 / pan</code></td><td><code>_pii_external</code></td><td>PII 힌트 정규식 <code>_PII_HINT</code>(주민등록번호·SSN·여권·카드번호 류) <strong>그리고</strong> 외부전송 정규식 <code>_EXTERNAL_SEND</code>(<code>https?://</code>·<code>curl</code>·<code>requests.post</code>·<code>fetch(</code>) 동시 매칭</td></tr>
+    <tr><td><code>delete / 삭제</code></td><td><code>_prod_delete</code></td><td><code>delete\s+from</code> 패턴 <strong>+</strong> 프로덕션 표식(<code>prod·production·운영·프로덕션</code>) 동시 매칭</td></tr>
+    <tr><td><code>비밀키 / secret / 크리덴셜 / 하드코딩 / api_key</code></td><td><code>_secret_hardcode</code></td><td>프로바이더 토큰·AWS 키·PEM <code>PRIVATE KEY</code> 블록·<code>key=value</code> 형 비밀 리터럴 <span class="muted">(값은 마스킹해 표기 — 절대 평문 출력 안 함)</span></td></tr>
+    <tr><td><code>rm -rf / 파괴 / destructive</code></td><td><code>_destructive_shell</code></td><td>재귀 삭제·<code>mkfs</code>·<code>dd if=</code>·블록 디바이스 덮어쓰기·고전 fork bomb</td></tr>
+    <tr><td><code>force-push / 강제 push</code></td><td><code>_force_push</code></td><td><code>git\s+push … --force</code>/<code>-f</code> <span class="muted">(단 <code>--force-with-lease</code> 는 제외)</span></td></tr>
+    <tr><td><code>chmod / 777 / world-writable</code></td><td><code>_chmod_open</code></td><td><code>chmod (-R) 777 / a+rwx / o+w</code> 권한 전체 개방</td></tr>
+    <tr><td><code>감사 로그 / audit</code></td><td><code>_audit_disable</code></td><td>감사 로그를 <code>false/0/off/disabled</code> 로 끄는 설정</td></tr>
+    <tr><td><code>무결성 / supply-chain / pipe-to-shell</code></td><td><code>_pipe_to_shell</code></td><td><code>curl|wget … | (sudo) sh/bash</code> 무결성 미검증 설치</td></tr>
+  </tbody>
+</table>
+
+<div class="note warn">
+  <div class="h">advisory 의 의미</div>
+  규칙 문구가 위 어떤 키워드와도 매칭되지 않으면 그 invariant 는 <strong>advisory</strong> 로 취급된다 — 기록은 되지만
+  <strong>혼자서 step 을 차단할 수 없다.</strong> 그 규칙의 가치 판단은 비동기 LLM Judge 몫이다. 즉 "L1 에 적었다 = 무조건 막힌다" 가 아니라,
+  <strong>"detector 가 붙은 L1 문구만 실제 gate 가 된다."</strong>
+</div>
+
+<!-- ================= LAYER 2 ================= -->
+<h3 id="l2"><span class="chip c-l2">Layer 2</span> Domain criteria — Judge(비동기) + 구조 검사(동기)</h3>
+<p>L2 는 두 갈래로 강제된다.</p>
+<h4>(a) 비동기 LLM Judge — <code>harness_lens/criteria/domain.py</code></h4>
+<p>
+<code>DomainJudge.evaluate()</code> 가 각 criterion 의 <code>judge_prompt</code> 으로 LLM 을 호출하고, 모델은 <strong>엄격한 JSON</strong>
+<code>{"pass": true|false, "reason": "&lt;short&gt;"}</code> 만 반환해야 한다. 가중 점수 = <code>Σ(통과 weight)/Σ(weight)</code>.
+스키마가 깨지면(<code>"pass":"maybe"</code> 등) 추측하지 않고 그 verdict 를 <strong>건너뛴다</strong>(점수를 부풀리지 않기 위해).
+Judge 가 못 도는 경우(LLM 없음/criteria 없음) 점수는 <code>NULL</code>(미평가)로 기록 — <em>실패가 아님</em>.
+</p>
+<div class="note">
+  <div class="h">왜 훅 안에서 Judge 를 안 돌리나</div>
+  훅은 타임아웃이 빡빡하고 에이전트를 멈추면 안 된다. 그래서 기본적으로 Judge 는 <strong>제어 경로에서 호출되지 않는다</strong>
+  (<code>HARNESS_LENS_JUDGE_IN_HOOK=1</code> + API 키로만 인라인 샘플링). 동기 차단 결정은 아래 (b) 구조 검사가 담당한다.
+</div>
+
+<h4>(b) 동기 구조 detector — <code>harness_lens/daemon/policy.py · _l2_suspect()</code></h4>
+<p>제어(PreToolUse) 경로는 LLM 을 못 부르므로, L2 의 <strong>프로세스성 규칙</strong>만 결정론적 구조 검사로 "의심"을 잡아 <strong>ESCALATE</strong> 한다.</p>
+<table>
+  <thead><tr><th>검사</th><th>발동 조건</th><th>criterion id</th></tr></thead>
+  <tbody>
+    <tr><td><strong>DC-001 (항상 ON)</strong><br>read-before-edit</td><td>편집 툴(<code>Write·Edit·MultiEdit·NotebookEdit·apply_patch</code>)이 대상 파일을 이 flow 에서 <strong>Read 한 기록 없이</strong> 수정 시도</td><td><code>DC-001</code></td></tr>
+    <tr><td>test-before-change</td><td>criterion 문구가 "회귀 테스트/테스트 동반…"에 매칭 + 변경 명령(<code>git commit/push/merge</code>·<code>deploy</code>·<code>kubectl apply</code>·<code>terraform apply</code> …)인데 이 flow 에서 <strong>테스트 실행 기록 없음</strong></td><td>해당 DC id (예 <code>HL-002</code>)</td></tr>
+    <tr><td>no-skip-verify</td><td>criterion 문구가 "검증 우회/skip ci…"에 매칭 + 검증 우회 플래그(<code>--no-verify</code>·<code>[skip&nbsp;ci]</code> 등) 사용</td><td>해당 DC id (예 <code>HL-003</code>)</td></tr>
+    <tr><td>payment-velocity</td><td>criterion 문구가 "속도 제한/rate-limit/다발 결제…"에 매칭 + 편집 내용에 결제 코드(<code>charge(</code>·<code>create_payment</code>·<code>/charge</code>…)는 있는데 속도 가드(<code>rate_limit·throttle·429·token_bucket</code>…)가 <strong>안 보임</strong></td><td>해당 DC id</td></tr>
+  </tbody>
+</table>
+<div class="note warn">
+  <div class="h">정직한 경계</div>
+  결제 검사는 "실행 중인 시스템이 실제로 throttle 하는가"(런타임 행동)를 볼 수 없다. 훅이 관측 가능한 건
+  <strong>에이전트가 작성 중인 결제 코드에 속도 가드 구문이 들어있는가</strong>라는 구조적 프록시뿐이다.
+  "환불 &gt; 결제" 같은 <strong>값 수준 비즈니스 규칙은 단일 툴콜로 관측 불가</strong> → detector 없이 Judge-advisory 로만 남는다.
+</div>
+
+<!-- ================= LAYER 3 ================= -->
+<h3 id="l3"><span class="chip c-l3">Layer 3</span> QA thresholds — 회로 차단기 + 진화 신호</h3>
+<p>기본값(<code>harness_lens/criteria/qa.py · QAConfig</code>):</p>
+<table>
+  <thead><tr><th>파라미터</th><th>기본</th><th>범위(<code>layer3_in_range</code>)</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr><td><code>retry_threshold</code></td><td>3</td><td><code>≥ 1</code></td><td>같은 (tool,category) 그룹의 최대 재시도가 이 값 이상이면 실패 패턴</td></tr>
+    <tr><td><code>latency_multiplier</code></td><td>3.0</td><td><code>&gt; 0</code></td><td>중앙값 × 배수 초과 step 을 "느림"으로 집계</td></tr>
+    <tr><td><code>failure_count_trigger</code></td><td>3</td><td><code>≥ 1</code></td><td><strong>enforce 회로 차단기</strong> + 실패 패턴 임계</td></tr>
+    <tr><td><code>quality_threshold</code></td><td>0.85</td><td><code>0.0 ~ 1.0</code></td><td>Judge 점수가 이 값 미만이면 "저품질" 집계</td></tr>
+  </tbody>
+</table>
+
+<h4>L3 의 두 가지 작동</h4>
+<p>
+<strong>① 실패 패턴화</strong> — <code>QACriteria.find_failure_patterns()</code> 가 step 들을 <code>(tool_name, task_category)</code> 로 묶어
+임계를 넘긴 그룹만 Debugger 에이전트가 소비할 패턴 dict 로 반환한다(<em>개별 step 차단 아님</em>).
+</p>
+<p>
+<strong>② enforce 회로 차단기</strong> — <code>PolicyEngine._l3_breach()</code>: flow 의 <strong>누적 실패</strong>가
+<code>failure_count_trigger</code> 이상이면 <em>다음</em> PreToolUse 를 <strong>ESCALATE</strong> 한다.
+L3 는 개별 행동을 보지 않고 <strong>런의 누적 QA 상태</strong>로 게이팅한다는 점이 L1/L2 와 결정적으로 다르다.
+</p>
+
+<!-- ================= GUARD ================= -->
+<h3 id="guard">1.4 CriteriaGuard — "오직 L3 만 진화"의 코드 강제</h3>
+<p><code>harness_lens/criteria/layer.py · CriteriaGuard</code> 가 자동 진화(AHE)와 사용자 일회성 오버라이드 모두를 L3 로 못 박는다.</p>
+<pre><code>def assert_evolvable_layer(self, target_layer: int):
+    if target_layer != 3:
+        raise CriteriaViolation("Layer {n} is not AHE-evolvable; only Layer 3 may change")
+
+def allow_user_override(self, key, value):
+    if key not in QACriteria.EVOLVABLE_KEYS:        # L3 파라미터가 아니면 거부
+        raise CriteriaViolation("… not a Layer-3 parameter; override rejected")
+    if not layer3_in_range(key, value):             # 범위 밖이면 거부 (retry 0, quality 2 …)
+        raise CriteriaViolation("… out of range")</code></pre>
+<p>
+즉 L1/L2 는 <strong>자동 진화의 대상이 될 수 없고</strong>(예외 발생), 사람이 명시적으로 편집하는 경로(<code>edit_criteria(layer1|layer2|layer3)</code>)만
+열려 있다. instruction 파일을 진화시킬 때도 <code>strip_block()</code> 으로 관리 블록(L1/L2/L3)을 떼어내고 사용자 콘텐츠만 evolver 에 넘긴 뒤
+<code>criteria.yaml</code> 에서 다시 렌더하므로, 제안이 L1/L2 를 <strong>삭제·변형할 수 없다.</strong>
+</p>
+
+<!-- ================= APPLY ================= -->
+<h2 id="apply">2. 제어가 적용되는 2가지 경로</h2>
+<p>3-Layer 는 두 갈래로 에이전트에 "적용"된다. 하나는 <strong>지시(정적)</strong>, 하나는 <strong>훅 데몬(동적)</strong>이다.</p>
+
+<div class="flow"><pre>
+                       ┌──────────────────────────  criteria.yaml / policy.yaml  ──────────────────────────┐
+                       │              invariants (L1)   ·   domain_criteria (L2)   ·   layer3 (L3)          │
+                       └───────────────┬───────────────────────────────────────────────┬──────────────────┘
+                                       │                                               │
+            (2.1) 정적 적용 ─ 지시 파일 │                                               │ (2.2) 동적 적용 ─ 런타임 훅
+                                       ▼                                               ▼
+            ┌──────────────────────────────────────────┐         ┌─────────────────────────────────────────────────┐
+            │  enforce.render_block() → 관리 블록        │         │  hook ──POST /hook/{source}──► DaemonRuntime       │
+            │  CLAUDE.md / AGENTS.md 에 마커 사이 삽입    │         │  adapter.to_event → _decide → PolicyEngine          │
+            │  "≈ 시스템 프롬프트" 로 에이전트가 읽음     │         │  → adapter.render → allow / deny / ask 출력         │
+            └──────────────────────────────────────────┘         └─────────────────────────────────────────────────┘
+                 에이전트가 "지키도록 유도"(soft)                       훅 출력으로 실제 "차단/에스컬레이션"(hard)
+</pre></div>
+
+<!-- ===== Path A ===== -->
+<h3 id="pathA">2.1 경로 A — 지시 파일에 관리 블록 렌더링 (<code>enforce.py</code>)</h3>
+<p>
+에이전트의 시스템 프롬프트는 블랙박스다. 그래서 harness-lens 는 <strong>가장 가까운 통제 가능한 대용물</strong>인 지시 파일
+(Claude Code → <code>CLAUDE.md</code>, Codex → <code>AGENTS.md</code>)에 3-Layer 를 <strong>마커로 감싼 관리 블록</strong>으로 써 넣는다.
+<code>render_block()</code> 은 <em>유효(effective)</em> 임계치(일회성 오버라이드가 있으면 그 값)를 렌더하므로,
+에이전트가 보는 숫자와 <code>find_failure_patterns</code> 가 평가하는 숫자가 항상 일치한다.
+</p>
+<pre><code>&lt;!-- harness-lens:3-layer:start (managed — edits inside this block are overwritten) --&gt;
+## harness-lens 3-Layer 하네스 (필수 준수)
+### Layer 1 — Invariants (절대 위반 금지)
+  - 비밀키·토큰·크리덴셜을 코드에 하드코딩하지 않는다
+  - force-push 로 보호 브랜치 히스토리를 덮어쓰지 않는다 (--force-with-lease 사용)
+### Layer 2 — Domain criteria (행동 기준)
+  - [HL-001] 파일 수정 전 현재 내용을 먼저 읽는다
+  …
+### Layer 3 — QA thresholds (품질 한계선)
+  - retry_threshold: 3
+  - failure_count_trigger: 3
+  …
+&lt;!-- harness-lens:3-layer:end --&gt;</code></pre>
+<ul>
+  <li><code>merge_block()</code>: 마커가 있으면 <strong>그 구간만 교체</strong>, 없으면 끝에 append → 사용자 콘텐츠 보존.</li>
+  <li><code>apply_to_instruction()</code>: 블록이 이미 최신이면 쓰기/백업을 <strong>건너뜀</strong>(install 때마다 백업이 쌓이지 않게).</li>
+  <li>원본은 <code>ComponentManager</code> 가 백업하므로 <strong>되돌릴 수 있음(revertible)</strong>.</li>
+</ul>
+<div class="note ok">
+  <div class="h">지금 이 세션이 증거</div>
+  이 대화의 글로벌 <code>CLAUDE.md</code> 상단에 보이는 "## harness-lens 3-Layer 하네스 (필수 준수)" 블록이 바로 이 경로의 산출물이다.
+  에이전트는 그 블록을 시스템 지시로 읽고 L1 위반 회피, L2 기준 준수, L3 한계선 안에서 작업하도록 유도된다. <em>다만 이것은 "유도"이지 물리적 차단은 아니다.</em>
+</div>
+
+<!-- ===== Path B ===== -->
+<h3 id="pathB">2.2 경로 B — 데몬 런타임 제어 (훅 → 데몬 → 결정)</h3>
+<p>실제 <strong>물리적 강제</strong>는 훅이 담당한다. 두 가지 훅 모드가 있다.</p>
+
+<table>
+  <thead><tr><th></th><th>레거시 관측 전용</th><th>데몬 제어 평면</th></tr></thead>
+  <tbody>
+    <tr><td>훅 커맨드</td><td><code>harness-lens hook &lt;event&gt;</code></td><td><code>harness-lens hook-relay &lt;source&gt;</code></td></tr>
+    <tr><td>핸들러</td><td><code>hooks/record.py</code></td><td><code>daemon/client.py → app.py → runtime.py</code></td></tr>
+    <tr><td>차단 능력</td><td><span class="tk-no">없음 — 항상 exit 0</span></td><td><span class="tk-yes">deny / ask / allow 가능</span></td></tr>
+    <tr><td>용도</td><td>궤적 기록(관측)</td><td>관측 <strong>+</strong> enforce</td></tr>
+  </tbody>
+</table>
+
+<p>데몬 제어 평면의 1회 처리 흐름(<code>DaemonRuntime.handle</code>):</p>
+<div class="flow"><pre>
+Claude Code / Codex
+   │  (lifecycle hook 발생: PreToolUse, Stop, UserPromptSubmit …)
+   ▼
+hook-relay  ──stdin JSON──►  client.relay()
+   │   POST http://127.0.0.1:PORT/hook/{claude_code|codex}   헤더: X-HL-Token
+   ▼
+FastAPI app.py  ──(토큰 검증: secrets.compare_digest)──►  runtime.handle(source, payload)
+   │
+   ├─ adapter = get_adapter(source)            # claude_code | codex
+   ├─ event   = adapter.to_event(payload)      # 네이티브 → HarnessEvent 정규화 (None 이면 무시→{})
+   ├─ step_id = writer.submit(_ingest(event))  # Flow/Task/Step 트리 재구성 + 원시 이벤트 durable 기록
+   │
+   ├─ if not event.is_control:  return {}       # 관측 전용 이벤트는 여기서 끝 (절대 차단 안 함)
+   │      (is_control = pre_tool_use · stop · subagent_stop · user_prompt)
+   │
+   └─ decision = _decide(event, step_id)        # ↓ 3-Layer 의사결정 (LLM 없음, 동기)
+          │
+          ▼
+       adapter.render(decision, event)          # 결정 → 해당 하네스 훅 출력 JSON
+          │
+          ▼
+   stdout ──► 하네스가 해석:  allow(진행) · deny(차단) · ask(터미널 승인) · block(계속 강제)
+</pre></div>
+
+<h2 id="pipeline">3. 의사결정 파이프라인 — <code>PolicyEngine</code></h2>
+<p>
+<code>DaemonRuntime._decide()</code> 는 먼저 이 flow 의 <strong>유효 정책 엔진과 모드</strong>를 <code>_policy_for(event)</code> 로 고른다
+(베이스 → repo 정책 → 개인 scope 합성; 매칭 없으면 글로벌 베이스). 그다음 이벤트 종류로 분기한다.
+</p>
+
+<h3>3.1 PreToolUse — <code>evaluate_pre_tool()</code> (순서 고정)</h3>
+<div class="flow"><pre>
+            ┌─────────────────────────────────────────────────────────────────┐
+PreToolUse ─►│ L1 Invariant (결정론적, name+input 텍스트)                        │
+            │     위반?                                                         │
+            │       ├─ enforce → ❌ DENY  (layer=1, criterion_id=위반 규칙)      │
+            │       └─ observe → ✅ ALLOW (기록만, 미차단)                       │
+            │     통과 ↓                                                        │
+            │ ── 이하 enforce 모드에서만 ──                                      │
+            │ L2 _l2_suspect (DC-001 + 구조 detector)                          │
+            │       의심? → ⚠ ESCALATE (layer=2)  → 승인 큐 park               │
+            │     통과 ↓                                                        │
+            │ L3 _l3_breach (누적 실패 ≥ failure_count_trigger)                 │
+            │       초과? → ⚠ ESCALATE (layer=3, criterion=failure_count_trigger)│
+            │     통과 ↓                                                        │
+            │ ✅ ALLOW (기본 허용)                                              │
+            └─────────────────────────────────────────────────────────────────┘
+</pre></div>
+<p>
+ESCALATE 가 나면 <code>_await_approval()</code> 로 승인 큐에 park 되고, GUI/터미널이 승인/거부하거나
+타임아웃 시 <code>default_on_timeout</code>(기본 <code>deny</code>) 정책이 적용된다. 결정은 <code>writer.submit(_apply_decision)</code> 로
+ledger 에 기록되며, deny 면 step.status=<code>denied</code>, 다운그레이드가 있었으면 <code>downgrade</code> 이벤트도 남긴다.
+</p>
+
+<h3>3.2 Stop / SubagentStop — <code>evaluate_stop()</code></h3>
+<p>
+enforce 모드이고 <code>completion_criteria</code>(선택적 섹션)가 있을 때만 작동한다. 미충족 기준(<code>no_failed_steps</code>,
+<code>min_steps:N</code> 같은 내장 체크)이 있으면 <strong>DENY → "계속하세요"</strong> 로 정지를 막아 에이전트를 더 일하게 만든다.
+알 수 없는/자유서술 기준은 "충족"으로 간주해 무한 루프를 방지한다. 섹션이 없으면 Stop 은 절대 차단되지 않는다.
+</p>
+
+<h3>3.3 UserPromptSubmit</h3>
+<p><code>_decide</code> 에서 <code>user_prompt</code> 는 항상 <code>Decision.allow()</code>. (차단/컨텍스트 주입은 adapter 의 별도 렌더 경로에서만.)</p>
+
+<h2 id="modes">4. 두 가지 모드 — observe vs enforce</h2>
+<p>모드는 <strong>criterion 이 아니라 운영 토글</strong>이라 <code>criteria.yaml</code> 이 아닌 <code>daemon.json</code> 에 저장된다(<code>harness-lens mode …</code> 로 런타임 전환).</p>
+<table>
+  <thead><tr><th></th><th><span class="chip c-obs">observe</span> (기본)</th><th><span class="chip c-enf">enforce</span></th></tr></thead>
+  <tbody>
+    <tr><td>L1 위반</td><td>기록만, 허용</td><td><strong>DENY</strong></td></tr>
+    <tr><td>L2 의심</td><td>차단 안 함</td><td><strong>ESCALATE</strong>(승인 큐)</td></tr>
+    <tr><td>L3 회로</td><td>모니터링만</td><td>누적 임계 초과 시 <strong>ESCALATE</strong></td></tr>
+    <tr><td>업그레이드 안전성</td><td>기존 관측 전용 설치와 동일하게 동작</td><td>명시적으로 켜야 함</td></tr>
+  </tbody>
+</table>
+<div class="note">
+  <div class="h">모드 우선순위</div>
+  <code>_effective_mode()</code>: <strong>개인 scope pin &gt; repo 정책 pin &gt; 글로벌 데몬 모드</strong>.
+  즉 데몬 전체가 observe 여도 특정 프로젝트 scope(또는 repo <code>policy.yaml</code> 의 <code>mode: enforce</code>)가 enforce 면 그 프로젝트만 강제된다.
+</div>
+
+<!-- ================= CLAUDE ================= -->
+<h2 id="claude">5. Claude Code 에서의 강제</h2>
+<p><code>harness_lens/daemon/adapters/claude_code.py</code> · 능력 매트릭스 <code>capabilities.py</code>.</p>
+
+<h4>Inbound — 이벤트 매핑(<code>EVENT_MAP</code>)</h4>
+<div class="pills">
+  <span class="pill">SessionStart</span><span class="pill">SessionEnd</span><span class="pill">UserPromptSubmit</span>
+  <span class="pill">PreToolUse</span><span class="pill">PostToolUse</span><span class="pill">PostToolUseFailure</span>
+  <span class="pill">SubagentStart/Stop</span><span class="pill">Stop</span><span class="pill">Notification</span><span class="pill">PreCompact</span>
+</div>
+<p>
+Claude Code 의 <code>PreToolUse</code> 는 <strong>모든 툴</strong>을 가로채므로 궤적이 <strong>빠짐없이</strong> 관측된다(gap 없음).
+페이로드는 <code>hook_event_name·session_id·tool_name·tool_input·tool_response</code> 등을 싣는다.
+(<code>tool_response</code> vs <code>tool_result</code> 둘 다 허용 — 빌드별 표기 차이 흡수.)
+</p>
+
+<h4>Outbound — 차단/에스컬레이션 출력 스키마(<code>_render_pre_tool</code>)</h4>
+<pre><code>// allow → "allow",  deny → "deny",  escalate → "ask"(터미널 승인 프롬프트로 에스컬레이션)
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "deny",            // allow | deny | ask
+    "permissionDecisionReason": "Layer 1 invariant 위반 — …",
+    "updatedInput": { … }                    // 선택: 툴 입력 재작성 (Claude 만 지원)
+  },
+  "additionalContext": "…"                    // 선택: 컨텍스트 주입
+}
+// Stop / SubagentStop: { "decision": "block", "reason": "완료 기준 미충족 … 계속하세요" } → 계속 강제</code></pre>
+
+<h4>능력(Claude Code 는 가장 풍부한 통제면)</h4>
+<table>
+  <thead><tr><th>deny</th><th>allow</th><th>escalate(ask)</th><th>update_tool_input</th><th>inject_context</th><th>force_continue_on_stop</th></tr></thead>
+  <tbody><tr>
+    <td class="tk-yes">✔</td><td class="tk-yes">✔</td><td class="tk-yes">✔</td><td class="tk-yes">✔</td><td class="tk-yes">✔</td><td class="tk-yes">✔</td>
+  </tr></tbody>
+</table>
+<p class="muted">정책 엔진은 이 "가장 풍부한 표면"(Claude Code) 기준으로 한 번만 작성되고, 다른 하네스에는 <code>downgrade()</code> 로 클램프된다.</p>
+
+<!-- ================= CODEX ================= -->
+<h2 id="codex">6. Codex CLI 에서의 강제</h2>
+<p><code>harness_lens/daemon/adapters/codex.py</code>. Codex 는 Claude Code 와 여러 면에서 다르고, harness-lens 가 그 차이를 흡수한다.</p>
+
+<h4>구조적 차이</h4>
+<table>
+  <thead><tr><th>항목</th><th>Codex</th><th>harness-lens 의 대응</th></tr></thead>
+  <tbody>
+    <tr><td>생명주기 훅</td><td>SessionStart·UserPromptSubmit·PreToolUse·PostToolUse·Stop <strong>만</strong> (SessionEnd·PostToolUseFailure·SubagentStop 없음)</td><td>Flow 는 <code>Stop</code> 에서 종료; 30초 내 새 prompt 면 같은 Flow 재개, 아니면 새 Flow</td></tr>
+    <tr><td>PreToolUse 범위</td><td><strong>좁음</strong> — <code>Bash·apply_patch·MCP</code> 툴만 가로챔</td><td>그 외(예: 웹검색)는 추측 없이 <strong>관측 불가(gap)</strong> 로 기록 → <code>show/status</code> 의 gap 비율로 확인</td></tr>
+    <tr><td>신뢰</td><td>trusted 프로젝트에서만 프로젝트-로컬 훅 로드</td><td>install 이 trust 리마인더 출력; 글로벌 훅은 <code>~/.codex/hooks.json</code></td></tr>
+    <tr><td>MCP 등록</td><td><code>config.toml</code> 자동 편집 안 함</td><td><code>codex mcp add …</code> 명령을 출력해 안내</td></tr>
+    <tr><td>지시 파일</td><td><code>AGENTS.md</code></td><td>관리 블록을 동일 마커로 삽입</td></tr>
+  </tbody>
+</table>
+
+<h4>Outbound — Codex ≥ 0.139 의 까다로운 런타임 검증</h4>
+<div class="note danger">
+  <div class="h">핵심: 스키마는 같지만 런타임은 deny 만 받는다</div>
+  Codex ≥ 0.139 는 Claude Code 와 <strong>동일한 hook 출력 스키마</strong>(<code>hookSpecificOutput.permissionDecision</code>)를 쓴다.
+  그러나 <strong>런타임 검증기는 PreToolUse 에서 permissionDecision "deny" 만</strong> 인정한다(비어있지 않은 reason 필수).
+  <code>"allow"</code>/<code>"ask"</code> 와 <code>updatedInput</code> 은 거부된다 — <em>"unsupported permissionDecision:allow"</em>.
+  레거시 <code>{"decision": action}</code> 형태도 거부된다 — <em>"invalid pre-tool-use JSON output"</em>
+  (PreToolUse 의 top-level <code>decision</code> 은 <code>approve/block</code> 만 받기 때문).
+</div>
+<pre><code>// _render_pre_tool — Codex
+// allow      → {}                                  (빈 출력 = 허용)
+// deny       → permissionDecision "deny" + reason
+// escalate   → 네이티브 'ask' 없음 → deny 로 collapse + 다운그레이드 노트 기록
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "harness-lens 정책에 의해 차단됨"
+  }
+}
+// UserPromptSubmit/Stop 차단: top-level  { "decision": "block", "reason": "…" }
+// 컨텍스트 주입: hookSpecificOutput.additionalContext (top-level additionalContext 없음) / Stop 은 systemMessage</code></pre>
+
+<h4>능력 매트릭스 — Claude Code vs Codex</h4>
+<table>
+  <thead><tr><th>capability</th><th>claude_code</th><th>codex</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>deny</td><td class="tk-yes">✔</td><td class="tk-yes">✔</td><td>양쪽 모두 차단 가능</td></tr>
+    <tr><td>allow</td><td class="tk-yes">✔</td><td class="tk-yes">✔</td><td>Codex 는 "빈 출력 = 허용"</td></tr>
+    <tr><td>escalate (ask)</td><td class="tk-yes">✔</td><td class="tk-no">✘</td><td>Codex 런타임에 네이티브 'ask' 없음 → <strong>deny 로 collapse</strong> (단, GUI 승인 큐는 여전히 park 후 deny/allow)</td></tr>
+    <tr><td>update_tool_input</td><td class="tk-yes">✔</td><td class="tk-no">✘</td><td><code>updatedInput</code> 은 permissionDecision:allow 를 요구 → Codex 에선 불가, drop</td></tr>
+    <tr><td>inject_context</td><td class="tk-yes">✔</td><td class="tk-yes">✔</td><td>additionalContext 로 가능</td></tr>
+    <tr><td>force_continue_on_stop</td><td class="tk-yes">✔</td><td class="tk-yes">✔</td><td>Stop "block" 으로 계속 강제</td></tr>
+  </tbody>
+</table>
+
+<h2 id="downgrade">7. 능력 다운그레이드 · 승인 큐 · 타임아웃</h2>
+<p>
+정책 엔진은 Claude Code 기준 한 벌의 <code>Decision</code> 을 만들고, <code>Adapter.finalize() → downgrade()</code>
+(<code>capabilities.py</code>)가 그것을 <strong>source 가 표현 가능한 형태로 클램프</strong>한다. 클램프로 바뀐 내용은
+사람이 읽는 <code>downgrades</code> 노트로 모아 ledger 에 남는다(설계: "adapter 가 다운그레이드, ledger 가 기록").
+</p>
+<ul>
+  <li><code>updated_input</code>: Codex 가 못 쓰므로 <strong>drop + 노트</strong>.</li>
+  <li><code>inject_context</code>: 능력 없으면 drop + 노트.</li>
+  <li><code>escalate</code> 자체는 mid-flight 다운그레이드하지 않는다 — 승인 큐가 양쪽 하네스 모두 park 가능. <em>터미널 렌더</em>만 다를 뿐(Codex 는 deny 로).</li>
+</ul>
+
+<h4>승인 큐(<code>_await_approval</code>)와 타임아웃 정책</h4>
+<div class="flow"><pre>
+ESCALATE
+  └─ approval 등록 → step.status="pending_approval" → bus.publish("approval", …) → GUI/터미널에 표시
+       └─ wait(approval_timeout_sec, 기본 60s)
+            ├─ APPROVED → ALLOW (원래 escalate 사유를 끝까지 보존: "승인됨 (escalate 해소) — 사유: …")
+            ├─ DENIED   → DENY  ("거부됨 — 사유: …")
+            └─ TIMEOUT  → default_on_timeout 적용:
+                            • deny(기본)            → DENY
+                            • allow                 → ALLOW
+                            • escalate_to_terminal  → Claude='ask' 렌더 / Codex=deny 로 collapse
+</pre></div>
+
+<h2 id="governance">8. 팀 거버넌스 — 저장소에 커밋되는 정책 (Phase 1)</h2>
+<p>
+harness-lens 는 본래 개발자별 <code>~/.harness-lens</code>(머신·유저 단위)에 뿌리내린다. 하지만 거버넌스는 <strong>팀</strong>의 관심사다.
+Phase 1 은 프로젝트가 자신의 3-Layer 하네스를 <strong>저장소 안에</strong>(<code>&lt;repo&gt;/.harness-lens/policy.yaml</code>) 실어,
+git 으로 배포하고 PR 로 리뷰하게 만든다 — <strong>policy-as-code</strong>.
+</p>
+<pre><code># &lt;repo&gt;/.harness-lens/policy.yaml  (커밋, 팀 소유)
+name: payments-governance
+invariants:                       # L1 — 거버넌스/안전
+  - "프로덕션 DB에 직접 DELETE 를 실행하지 않는다"
+domain_criteria:                  # L2 — 프로세스/행동
+  - id: BIZ-001
+    description: "결제·정산 로직 변경 시 회귀 테스트를 동반한다"
+    weight: 1.5
+layer3:                           # L3 — QA 임계
+  failure_count_trigger: 2
+mode: enforce                     # 선택 — 이 repo 를 observe/enforce 로 고정</code></pre>
+<ul>
+  <li>데몬이 세션 <code>cwd</code> 에서 위로 걸어 올라가며 <code>find_repo_policy()</code> 로 자동 발견 → <strong>그 repo 안의 모든 세션</strong>에 적용.</li>
+  <li><code>load_repo_policy()</code> 가 flat 파일을 <code>cwd_prefix</code> Scope 로 변환(GUI scope 와 동일한 검증을 재사용).</li>
+  <li>커밋 파일 수정은 <strong>mtime 캐시로 hot-reload</strong>(<code>_repo_scope_for</code>) — 데몬 재시작 불필요(예: git pull 직후).</li>
+  <li>GUI 에선 보라색 <code>📦 repo 정책</code> 칩 + 규칙마다 <code>📦 repo</code> 태그.</li>
+</ul>
+
+<h4>합성 순서 (<code>apply_scope</code> — 순수·가산적)</h4>
+<div class="flow"><pre>
+personal base (~/.harness-lens/criteria.yaml)
+        │   + repo 의 invariants/criteria 는 ADD, layer3 는 OVERRIDE, mode 는 PIN
+        ▼
+repo policy (.harness-lens/policy.yaml)
+        │   + personal scope 의 add_* 는 ADD, layer3 OVERRIDE …
+        ▼
+personal scope overlay (criteria.yaml 의 scopes:)
+        =
+   effective 3-Layer  ──►  PolicyEngine(effective)
+</pre></div>
+<div class="note danger">
+  <div class="h">정직한 경계 — 로컬 데몬은 "빠른 피드백"이지 권위 게이트가 아니다</div>
+  개발자는 자기 머신을 소유한다: 파일을 고치거나 <code>observe</code> 로 바꾸거나 데몬을 끌 수 있다.
+  따라서 <strong>개인이 약화시킬 수 없는</strong> 팀 강제는 그가 못 건드리는 곳 — <strong>CI / pre-merge</strong>(같은 <code>invariant.py</code>/<code>policy.py</code> detector 를
+  에이전트 diff 에 재실행)와, 이후 <strong>팀 컨트롤 플레인</strong>(권위 정책 + 중앙 감사 ledger + 공유 승인 큐) — 에 있어야 한다.
+  Phase 1 은 <strong>배포·리뷰·버전관리</strong> 스토리를 제공하고, 우회 불가 권위는 다음 단계다.
+</div>
+
+<h2 id="scope">9. Scope 합성 · 해석 규칙</h2>
+<p>scope 는 특정 프로젝트(<code>cwd</code> 또는 prefix)나 특정 세션이 글로벌 베이스와 다른 기준으로 돌게 한다. <strong>오직 tighten 만</strong> 가능 — 글로벌 규칙을 제거할 수 없다(L1 안전 바닥은 모든 세션에 동일).</p>
+<h4>해석 — 가장 구체적인 매치 승리 (<code>match_score</code>)</h4>
+<table>
+  <thead><tr><th>매치 종류</th><th>점수</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td>exact <code>session_id</code></td><td><code>1,000,000</code></td><td>세션 핀 — 무엇이든 이김</td></tr>
+    <tr><td>exact <code>cwd ==</code></td><td><code>500,000</code></td><td>프로젝트 자기 하네스 — 부모 prefix 보다 우선, 세션 핀엔 짐</td></tr>
+    <tr><td><code>cwd_prefix</code></td><td>prefix 길이</td><td>가장 긴(=가장 깊은) prefix 승리</td></tr>
+    <tr><td>매치 없음</td><td><code>-1</code></td><td>글로벌 베이스로 폴백</td></tr>
+  </tbody>
+</table>
+<p>각 scope 는 <code>mode</code> pin, <code>layer3</code> override, <code>add_invariants</code>/<code>add_domain_criteria</code> 가산만 한다. layer3 는 known 키 + 범위 내만 반영(out-of-range 무시).</p>
+
+<h2 id="failsafe">10. 안전장치 — Fail-open · 토큰 · 비밀 마스킹</h2>
+<table>
+  <thead><tr><th>장치</th><th>동작</th><th>코드</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Fail-open(기본)</strong></td><td>데몬 미응답 시 control 훅은 <strong>허용</strong>하고 <code>hook-fallback.log</code> 에 기록 — 에이전트를 막지 않음</td><td><code>client._on_outage</code></td></tr>
+    <tr><td>Fail-closed</td><td><code>daemon.json</code> 의 <code>fail_open=false</code> → 미응답 시 control 행동을 <strong>deny</strong>(하네스별 올바른 스키마로)</td><td>同</td></tr>
+    <tr><td>토큰 게이트</td><td>모든 훅→데몬 요청에 <code>X-HL-Token</code> 필요, <code>secrets.compare_digest</code> 로 검증, 데몬은 <strong>loopback 전용</strong> 바인드. 토큰 파일은 권한 600</td><td><code>config.ensure_token</code>, <code>app.auth</code></td></tr>
+    <tr><td>비밀 마스킹</td><td>ledger 기록 <em>전</em> <code>tool_output</code>·<code>raw</code> 의 크리덴셜 형태(프로바이더 토큰·AWS 키·JWT·PEM 블록)와 민감 키명(<code>token/secret/password…</code>)을 <code>***REDACTED***</code> 로 치환(순수, in-place 변형 없음)</td><td><code>events.mask_secrets</code></td></tr>
+    <tr><td>관측 무한루프 방지</td><td>no-key LLM 백엔드가 host CLI 를 다시 부를 때 <code>HARNESS_LENS_DISABLE=1</code> 로 그 중첩 세션은 관측하지 않음</td><td><code>hooks/record.main</code></td></tr>
+    <tr><td>관측은 절대 안 던짐</td><td>레거시 훅 경로는 어떤 예외든 삼키고 <strong>항상 exit 0</strong> — 관측이 에이전트로 예외를 올려보내지 않음</td><td><code>hooks/record.main</code></td></tr>
+  </tbody>
+</table>
+
+<!-- ================= SELF-BLOCK ================= -->
+<h2 id="selfblock">11. 실증 — 이 문서가 자기 자신에게 차단당했다</h2>
+<div class="note warn">
+  <div class="h">dogfooding 의 산 증거</div>
+  이 문서를 처음 저장하려 할 때, <strong>enforce 모드의 harness-lens 데몬(pid 기준 live)이 자신의 문서 작성을 Layer 1 으로 DENY</strong> 했다.
+  detector 는 의도(documentation)와 행위(execution)를 구분하지 못하고, 문서가 인용한 <em>패턴 문자열 자체</em>에 반응했기 때문이다.
+</div>
+<pre><code>Layer 1 invariant 위반 —
+  개인정보를 외부 API로 전송하지 않는다  (개인정보 패턴 "pan" + 외부전송 "https://");
+  프로덕션 DB에 직접 DELETE를 실행하지 않는다  ("DELETE FROM" + 프로덕션 표식 "prod");
+  force-push 로 …                          (강제 push "git push … --force")</code></pre>
+<p>
+세 detector(<code>_pii_external</code>, <code>_prod_delete</code>, <code>_force_push</code>)가 <strong>문서 본문에 적힌 예시 토큰</strong>을 위반으로 본 것이다.
+이것은 <strong>거짓 양성(false positive)</strong>이다 — 실제 Layer 1 invariant("PII 외부 전송 금지", "프로덕션 DB DELETE 금지")는 HTML 파일을 쓴다고 위반되지 않는다.
+대응으로 데몬을 잠시 <code>observe</code> 로 전환해 본 문서를 기록(허용)하고 즉시 <code>enforce</code> 로 복구했다 — 어떤 invariant 도 실제로 위반하지 않은 채.
+</p>
+<div class="note">
+  <div class="h">시사점(설계 피드백)</div>
+  결정론적 detector 는 "코드/명령으로서의 패턴"과 "텍스트로서의 패턴"을 구분하지 못한다. 산문·문서를 많이 다루는 컨텍스트라면
+  <strong>대상 툴/파일 종류에 따른 detector 게이팅</strong>(예: <code>.md/.html</code> 같은 문서 산출물엔 명령형 invariant 를 완화)이나
+  <strong>edit 내용 vs 실행 명령 구분</strong>이 거짓 양성을 줄이는 후속 개선 포인트가 된다.
+</div>
+
+<h2 id="files">12. 파일 맵 — 어디를 보면 되나</h2>
+<div class="filemap">
+  <h4>3-Layer 정의 · 가드</h4>
+  <code>harness_lens/criteria/layer.py</code> — ThreeLayerCriteria 컨테이너·로더·<strong>CriteriaGuard</strong>(L3-only)
+  <code>harness_lens/criteria/invariant.py</code> — <strong>L1</strong> InvariantChecker + 8개 내장 detector + 키워드 매핑
+  <code>harness_lens/criteria/domain.py</code> — <strong>L2</strong> DomainCriterion + LLM DomainJudge(엄격 JSON)
+  <code>harness_lens/criteria/qa.py</code> — <strong>L3</strong> QAConfig·범위검증·find_failure_patterns
+  <h4>적용 경로</h4>
+  <code>harness_lens/enforce.py</code> — (경로A) CLAUDE.md/AGENTS.md 관리 블록 렌더·머지·strip
+  <code>harness_lens/daemon/policy.py</code> — (경로B) <strong>PolicyEngine</strong>: pre_tool/stop 3-Layer 의사결정
+  <code>harness_lens/daemon/runtime.py</code> — DaemonRuntime: handle·_decide·_policy_for·승인 큐
+  <code>harness_lens/daemon/client.py</code> — hook-relay: POST + <strong>fail-open</strong>
+  <code>harness_lens/daemon/app.py</code> — FastAPI: <code>POST /hook/{source}</code> + 토큰 인증
+  <h4>하네스별 어댑터</h4>
+  <code>harness_lens/daemon/capabilities.py</code> — 능력 매트릭스 + Decision + downgrade
+  <code>harness_lens/daemon/adapters/claude_code.py</code> — Claude Code in/out 스키마
+  <code>harness_lens/daemon/adapters/codex.py</code> — Codex in/out 스키마(deny-only 런타임)
+  <code>harness_lens/daemon/events.py</code> — HarnessEvent 정규화 + is_control + mask_secrets
+  <h4>팀 거버넌스 · scope</h4>
+  <code>harness_lens/criteria/repo_policy.py</code> — .harness-lens/policy.yaml 발견·로드
+  <code>harness_lens/criteria/scope.py</code> — Scope·apply_scope(가산)·resolve_scope(구체성)
+  <code>.harness-lens/policy.yaml</code> · <code>docs/team-governance.md</code> — 이 저장소의 실제 정책·문서
+  <h4>설치 · 모드</h4>
+  <code>harness_lens/daemon/install.py</code> — relay 훅 등록(이벤트별 timeout)
+  <code>harness_lens/daemon/config.py</code> — 모드(observe/enforce)·타임아웃·토큰
+  <code>harness_lens/hooks/record.py</code> — 레거시 관측 전용 훅(항상 exit 0)
+</div>
+
+<div class="note ok" style="margin-top:28px">
+  <div class="h">요약 — "적용"과 "강제"의 분리</div>
+  <strong>적용</strong>(정적): 3-Layer 를 CLAUDE.md/AGENTS.md 관리 블록으로 렌더해 에이전트가 시스템 지시로 읽게 한다(유도, soft).
+  <strong>강제</strong>(동적): hook → daemon → PolicyEngine 이 <span class="chip c-l1">L1</span> 결정론적 DENY,
+  <span class="chip c-l2">L2</span> 구조적 ESCALATE, <span class="chip c-l3">L3</span> 누적 회로 차단을 만들고,
+  adapter 가 Claude Code(allow/deny/ask 전부)와 Codex(deny 중심, ask→deny collapse)의 정확한 훅 출력 스키마로 내보낸다.
+  거버넌스는 repo 의 <code>policy.yaml</code> 로 배포·리뷰되고, 우회 불가 권위는 CI/컨트롤 플레인이라는 다음 단계의 몫이다.
+</div>
+
+<footer>
+  생성: harness-lens 코드베이스(브랜치 <code>feat/repo-policy</code>) 정적 분석 기반 · 단일 파일 HTML(외부 의존성 없음).<br>
+  본 문서의 모든 동작 기술은 위 "파일 맵"의 실제 소스와 1:1 대응한다. 코드가 바뀌면 본 문서도 갱신 필요.
+</footer>
+
+</main>
+</div>
+</body>
+</html>

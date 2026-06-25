@@ -35,7 +35,7 @@ from typing import Optional
 import yaml
 
 from .domain import DomainCriterion
-from .layer import ThreeLayerCriteria
+from .layer import ThreeLayerCriteria, parse_detectors
 from .qa import QACriteria, QAConfig, layer3_in_range
 
 _MODES = ("observe", "enforce")
@@ -56,6 +56,7 @@ class Scope:
     add_invariants: list[str] = field(default_factory=list)
     add_domain_criteria: list[DomainCriterion] = field(default_factory=list)
     layer3: dict = field(default_factory=dict)
+    add_detectors: list = field(default_factory=list)  # compiler-promoted regex gates (escalate)
 
     def match_score(self, cwd: Optional[str], session_id: Optional[str]) -> int:
         """Specificity of this scope's match (higher = more specific), or -1 if it does not apply."""
@@ -125,6 +126,7 @@ def _scope_from_raw(raw, index: int) -> Optional[Scope]:
         add_invariants=[str(x) for x in (raw.get("add_invariants") or []) if str(x).strip()],
         add_domain_criteria=domain,
         layer3=_clean_layer3(raw.get("layer3") or {}),
+        add_detectors=parse_detectors(raw.get("detectors") or raw.get("add_detectors") or []),
     )
 
 
@@ -157,6 +159,11 @@ def scope_to_payload(scope: Scope) -> dict:
         out["add_domain_criteria"] = [
             {"id": d.id, "description": d.description, "judge_prompt": d.judge_prompt, "weight": d.weight}
             for d in scope.add_domain_criteria
+        ]
+    if scope.add_detectors:
+        out["detectors"] = [
+            {"layer": d.layer, "rule": d.rule, "regex": d.regex, "verified": True}
+            for d in scope.add_detectors
         ]
     return out
 
@@ -199,4 +206,7 @@ def apply_scope(base: ThreeLayerCriteria, scope: Optional[Scope]) -> ThreeLayerC
         if key in QACriteria.EVOLVABLE_KEYS:
             merged[key] = value
     qa = QACriteria(QAConfig.from_dict(merged))
-    return ThreeLayerCriteria(invariants=invariants, domain_criteria=domain, qa=qa)
+    # Generated detectors compose additively too: base ∪ scope (a scope can only ADD gates).
+    detectors = list(base.generated_detectors) + list(scope.add_detectors)
+    return ThreeLayerCriteria(invariants=invariants, domain_criteria=domain, qa=qa,
+                              generated_detectors=detectors)

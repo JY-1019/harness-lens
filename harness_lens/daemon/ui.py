@@ -18,44 +18,99 @@ _PAGE = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#6366f1">
 <title>harness-lens · live</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%236366f1'/><circle cx='16' cy='16' r='7.5' fill='none' stroke='white' stroke-width='2.5'/><circle cx='16' cy='16' r='2.6' fill='white'/></svg>">
 <style>
   :root {
-    color-scheme: light dark;
-    --blue:#3b82f6; --green:#16a34a; --red:#e5484d; --amber:#d98315; --accent:var(--blue);
-    /* fallbacks first, then color-mix for modern browsers (adapts to light/dark) */
-    --line:#8886;        --line: color-mix(in srgb, CanvasText 15%, transparent);
-    --line-soft:#8883;   --line-soft: color-mix(in srgb, CanvasText 8%, transparent);
-    --line-strong:#8889; --line-strong: color-mix(in srgb, CanvasText 30%, transparent);
-    --surface:#80808008;  --surface: color-mix(in srgb, CanvasText 3.5%, Canvas);
-    --surface-2:#80808014; --surface-2: color-mix(in srgb, CanvasText 7%, Canvas);
-    --muted:#888;        --muted: color-mix(in srgb, CanvasText 56%, transparent);
+    /* Light Minimal + Indigo. color-scheme:light forces Canvas=white / CanvasText=near-black
+       even under an OS dark theme, so every color-mix() below resolves to the light palette. */
+    color-scheme: light;
+    --blue:#6366f1; --accent:#6366f1; --accent-hover:#4f46e5;
+    --green:#16a34a; --red:#dc2626; --amber:#d97706;
+    --line:#ececef;        --line: color-mix(in srgb, CanvasText 9%, transparent);
+    --line-soft:#f1f1f3;   --line-soft: color-mix(in srgb, CanvasText 5%, transparent);
+    --line-strong:#d4d4d8; --line-strong: color-mix(in srgb, CanvasText 18%, transparent);
+    --surface:#fbfbfc;  --surface: color-mix(in srgb, CanvasText 2%, Canvas);
+    --surface-2:#f4f4f5; --surface-2: color-mix(in srgb, CanvasText 4.5%, Canvas);
+    --surface-3:#ececef; --surface-3: color-mix(in srgb, CanvasText 7%, Canvas);
+    --muted:#71717a;        --muted: color-mix(in srgb, CanvasText 54%, transparent);
+    --accent-weak: color-mix(in srgb, var(--blue) 12%, Canvas);
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Apple SD Gothic Neo", "Malgun Gothic", "Helvetica Neue", Arial, sans-serif;
-    --radius:9px;
+    --radius:8px; --radius-sm:6px; --radius-lg:12px;
+    --shadow: 0 1px 2px color-mix(in srgb, CanvasText 7%, transparent);
+    --shadow-pop: 0 16px 48px color-mix(in srgb, CanvasText 20%, transparent), 0 4px 12px color-mix(in srgb, CanvasText 8%, transparent);
   }
   * { box-sizing: border-box; }
   body { font: 13px/1.55 var(--sans); margin:0; height:100vh; display:flex; flex-direction:column;
          background:Canvas; color:CanvasText; -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
   code, kbd, samp { font-family:var(--mono); }
-  header { display:flex; align-items:center; gap:.55rem; padding:.5rem 1rem; border-bottom:1px solid var(--line); background:var(--surface); }
-  header h1 { font-size:.95rem; margin:0; font-weight:650; letter-spacing:-.01em; display:flex; align-items:center; gap:.45rem; }
-  header h1::before { content:""; width:.7rem; height:.7rem; border-radius:3px;
-    background:linear-gradient(135deg, var(--blue), #8b5cf6); box-shadow:0 0 0 2px color-mix(in srgb, var(--blue) 22%, transparent); }
+  ::selection { background:color-mix(in srgb, var(--blue) 28%, transparent); }
+  /* thin, unobtrusive scrollbars — reads like a desktop console, not a default web page */
+  * { scrollbar-width:thin; scrollbar-color:var(--line-strong) transparent; }
+  ::-webkit-scrollbar { width:9px; height:9px; }
+  ::-webkit-scrollbar-thumb { background:var(--line-strong); border-radius:99px; border:2px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:color-mix(in srgb, CanvasText 38%, transparent); background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  header { display:flex; align-items:center; gap:.45rem; padding:.5rem 1.05rem; border-bottom:1px solid var(--line);
+           background:color-mix(in srgb, CanvasText 1.5%, Canvas); }
+  header h1 { font-size:.9rem; margin:0; font-weight:600; letter-spacing:-.01em; display:flex; align-items:center; gap:.45rem; }
+  header h1 .logo { width:1.1rem; height:1.1rem; display:inline-grid; place-items:center; border-radius:5px; flex:none;
+    background:var(--blue); color:#fff; }
+  header h1 .logo svg { display:block; }
+  header h1 .tag { font-size:.6rem; font-weight:600; letter-spacing:.09em; text-transform:uppercase; color:var(--muted);
+    border:1px solid var(--line); border-radius:4px; padding:.06rem .3rem; margin-left:.1rem; }
   .grow { flex:1; }
-  .badge { border:1px solid var(--line); border-radius:999px; padding:.12rem .6rem; font-size:.74rem; color:var(--muted); }
-  .badge.alert { background:var(--amber); color:#fff; border-color:transparent; cursor:pointer; font-weight:600; }
+  .badge { border:1px solid var(--line); border-radius:6px; padding:.16rem .5rem; font-size:.72rem; color:var(--muted);
+    display:inline-flex; align-items:center; gap:.28rem; }
+  .badge.alert { background:var(--amber); color:#fff; border-color:transparent; cursor:pointer; font-weight:600;
+    box-shadow:0 0 0 3px color-mix(in srgb,var(--amber) 18%, transparent); }
   #conn.bad { color:var(--red); } #conn.ok { color:var(--green); }
-  button { font:inherit; font-size:.82rem; padding:.3rem .7rem; border:1px solid var(--line); border-radius:7px;
-           background:var(--surface); color:inherit; cursor:pointer; transition:background .12s ease, border-color .12s ease; }
+  button { font:inherit; font-size:.8rem; padding:.32rem .72rem; border:1px solid var(--line); border-radius:var(--radius-sm);
+           background:var(--surface); color:inherit; cursor:pointer; font-weight:500; letter-spacing:-.005em;
+           transition:background .12s ease, border-color .12s ease; }
   button:hover:not(:disabled) { background:var(--surface-2); border-color:var(--line-strong); }
+  button:active:not(:disabled) { background:var(--surface-3); }
+  button:focus-visible { outline:2px solid var(--accent-weak); outline-offset:1px; }
   button:disabled { opacity:.4; cursor:not-allowed; }
   #mode { font-weight:600; }
-  main { flex:1; display:grid; grid-template-columns: 16.5rem 1fr 24rem; min-height:0; }
-  aside, #detail { overflow:auto; padding:.65rem .7rem; }
+  main { --left-w:16.5rem; --right-w:24rem; flex:1; display:grid;
+         grid-template-columns: var(--left-w) 6px minmax(20rem, 1fr) 6px var(--right-w); min-height:0; }
+  aside, #detail { overflow:auto; padding:.65rem .7rem; min-width:0; }
   aside { border-right:1px solid var(--line); background:var(--surface); }
   #canvas { overflow:auto; padding:1rem 1.1rem; }
   #detail { border-left:1px solid var(--line); background:var(--surface); }
+  .panehead { display:flex; align-items:center; gap:.45rem; margin-bottom:.55rem; position:sticky; top:-.65rem;
+              z-index:5; background:var(--surface); padding:.15rem 0 .45rem; }
+  .panehead h2 { flex:1; margin:0; }
+  .pane-toggle, .iconbtn { width:1.65rem; height:1.65rem; display:inline-grid; place-items:center; padding:0;
+    border-color:transparent; background:transparent; border-radius:var(--radius-sm); color:var(--muted); line-height:1; }
+  .pane-toggle svg, .iconbtn svg { display:block; transition:transform .16s ease; }
+  .pane-toggle:hover:not(:disabled), .iconbtn:hover:not(:disabled) {
+    color:CanvasText; background:var(--surface-2); border-color:transparent;
+  }
+  /* disclosure chevron — one shape, rotated by an .open ancestor (replaces the → / ↓ text arrows) */
+  .caret { width:.95rem; height:.95rem; display:inline-grid; place-items:center; flex:none; color:var(--muted);
+    transition:transform .16s ease; }
+  .caret svg { display:block; }
+  .projgroup.open > .projhead .caret, .turnsec.open .turnhead .caret,
+  .askblock.open .askhead .caret { transform:rotate(90deg); }
+  .resize-handle { position:relative; cursor:col-resize; touch-action:none; }
+  .resize-handle::before { content:""; position:absolute; top:0; bottom:0; left:50%; border-left:1px solid var(--line-soft); }
+  .resize-handle:hover::before, .resize-handle.dragging::before {
+    border-left-color:var(--blue); box-shadow:0 0 0 2px color-mix(in srgb, var(--blue) 18%, transparent);
+  }
+  main.left-collapsed #leftResize, main.right-collapsed #rightResize { cursor:default; pointer-events:none; }
+  main.left-collapsed #leftResize::before, main.right-collapsed #rightResize::before { display:none; }
+  main.left-collapsed aside, main.right-collapsed #detail { padding:.45rem .25rem; overflow:hidden; }
+  main.left-collapsed #sessions, main.right-collapsed #detail-body { display:none; }
+  main.left-collapsed aside .panehead, main.right-collapsed #detail .panehead {
+    flex-direction:column; align-items:center; gap:.35rem; margin-bottom:0; padding:.1rem 0;
+  }
+  main.left-collapsed aside h2, main.right-collapsed #detail h2 {
+    writing-mode:vertical-rl; text-orientation:upright; transform:none; margin:.1rem 0; letter-spacing:0;
+  }
   h2 { font-size:.72rem; color:var(--muted); margin:.15rem .15rem .55rem; text-transform:uppercase; letter-spacing:.06em; font-weight:600; }
   .sess { display:flex; gap:.4rem; align-items:center; padding:.2rem; border-radius:5px; cursor:pointer; }
   .sess:hover { background:#8881; }
@@ -67,7 +122,7 @@ _PAGE = r"""<!DOCTYPE html>
               margin:-.05rem -.1rem .45rem; padding-bottom:.4rem; border-bottom:1px solid var(--line); }
   .flowhead b { font-size:.95rem; flex:1 1 12rem; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .flowtools { display:flex; gap:.35rem; align-items:center; margin-left:auto; }
-  .iconbtn { width:1.9rem; height:1.9rem; display:inline-grid; place-items:center; padding:0; border-radius:6px; }
+  .iconbtn { flex:none; }
   .chip.scope { border-color:var(--blue); color:var(--blue); }
   .chip.project { max-width:15rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .flowmeta { display:grid; gap:.25rem; margin:.15rem 0 .45rem; }
@@ -90,11 +145,13 @@ _PAGE = r"""<!DOCTYPE html>
   .step-main { display:flex; gap:.45rem; align-items:center; max-width:100%; }
   .step-usage { display:flex; gap:.3rem; flex-wrap:wrap; margin-left:1.35rem; }
   .step.sel { outline:2px solid var(--blue); }
-  .st-running { border-color:var(--blue); animation:pulse 1.1s ease-in-out infinite; }
-  .st-ok { border-color:var(--green); } .st-failed { border-color:var(--red); color:var(--red); }
-  .st-denied { opacity:.55; text-decoration:line-through; }
-  .st-pending_approval { border-color:var(--amber); background:var(--amber); color:#000; animation:pulse 1s ease-in-out infinite; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.55} }
+  .st-running { border-color:var(--blue); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--blue) 35%, transparent);
+    animation:pulse 1.4s ease-in-out infinite; }
+  .st-ok { border-color:color-mix(in srgb,var(--green) 55%, var(--line)); } .st-failed { border-color:var(--red); color:var(--red); }
+  .st-denied { opacity:.5; text-decoration:line-through; }
+  .st-pending_approval { border-color:var(--amber); background:color-mix(in srgb,var(--amber) 13%, Canvas); color:inherit;
+    animation:pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.72} }
   .tname { white-space:nowrap; }
   /* WHY a step was caught — inline reason under a denied/escalated step */
   .step-verdict { margin-left:1.35rem; font-size:.78rem; white-space:pre-wrap; word-break:break-word; cursor:pointer; }
@@ -105,7 +162,8 @@ _PAGE = r"""<!DOCTYPE html>
   .cmdsum { flex:0 1 auto; min-width:0; max-width:34rem; overflow:hidden; text-overflow:ellipsis;
             white-space:nowrap; opacity:.62; font-size:.78rem; font-family:var(--mono); }
   .step.sel .cmdsum { opacity:.85; }
-  .chip { font-size:.7rem; border:1px solid var(--line); border-radius:999px; padding:.04rem .45rem; color:var(--muted); background:var(--surface); white-space:nowrap; }
+  .chip { font-size:.69rem; border:1px solid var(--line); border-radius:4px; padding:.05rem .42rem; color:var(--muted);
+          background:var(--surface); white-space:nowrap; font-variant-numeric:tabular-nums; }
   .muted { opacity:.6; } .mono { white-space:pre-wrap; word-break:break-word; }
   .appr { border:1px solid var(--amber); border-radius:9px; padding:.6rem .65rem; margin-bottom:.6rem; background:color-mix(in srgb,var(--amber) 8%, Canvas); }
   .bar { height:5px; background:#8883; border-radius:3px; overflow:hidden; margin:.4rem 0; }
@@ -115,13 +173,14 @@ _PAGE = r"""<!DOCTYPE html>
         border-radius:7px; padding:.5rem .6rem; max-height:18rem; overflow:auto; font-family:var(--mono); font-size:.8rem; }
   input[type=text] { font:inherit; width:100%; padding:.2rem; }
   /* scope editor modal */
-  .modal { position:fixed; inset:0; background:#0008; display:flex; align-items:center; justify-content:center; z-index:50; }
-  .modalbox { background:Canvas; color:CanvasText; border:1px solid var(--line); border-radius:10px;
-              width:min(48rem,94vw); max-height:88vh; display:flex; flex-direction:column; box-shadow:0 6px 30px #0007; }
-  .modalhead, .modalfoot { display:flex; align-items:center; gap:.5rem; padding:.55rem .8rem; }
+  .modal { position:fixed; inset:0; background:color-mix(in srgb, CanvasText 38%, transparent); backdrop-filter:blur(2px);
+           display:flex; align-items:center; justify-content:center; z-index:50; }
+  .modalbox { background:Canvas; color:CanvasText; border:1px solid var(--line-strong); border-radius:var(--radius-lg);
+              width:min(48rem,94vw); max-height:88vh; display:flex; flex-direction:column; box-shadow:var(--shadow-pop); }
+  .modalhead, .modalfoot { display:flex; align-items:center; gap:.5rem; padding:.6rem .85rem; }
   .modalhead { border-bottom:1px solid var(--line); } .modalfoot { border-top:1px solid var(--line); }
   #scopeList { overflow:auto; padding:.6rem .8rem; display:flex; flex-direction:column; gap:.7rem; }
-  #scopeList:empty::after { content:"스코프가 없습니다. '+ 추가'로 만드세요."; opacity:.6; }
+  #scopeList:empty::after { content:""; }
   .scoperow { border:1px solid var(--line); border-radius:8px; padding:.5rem .6rem; display:grid; gap:.4rem; }
   .scoperow .line { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }
   .scoperow label { font-size:.74rem; opacity:.65; }
@@ -148,6 +207,24 @@ _PAGE = r"""<!DOCTYPE html>
   .hl-lock { font-size:.74rem; margin-left:auto; }
   .hl-actions { display:flex; gap:.5rem; margin-top:.45rem; }
   .hl-save { border:1px solid var(--green); color:var(--green); border-radius:6px; padding:.2rem .7rem; }
+  /* rule compiler (LLM classification) */
+  .hl-compile { border:1px solid var(--blue); color:var(--blue); border-radius:6px; padding:.2rem .7rem; }
+  .hl-cwrap { display:grid; gap:.3rem; margin:.2rem 0 .6rem; }
+  .hl-crow { border:1px solid var(--line); border-radius:7px; padding:.4rem .55rem; }
+  .hl-crow .top { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }
+  .hl-crow .rtext { flex:1; min-width:10rem; font-size:.82rem; }
+  .hl-tag { font-size:.7rem; border-radius:999px; padding:.05rem .5rem; border:1px solid var(--line); white-space:nowrap; }
+  .hl-tag.det { color:var(--green); border-color:var(--green); }
+  .hl-tag.adv { color:#e3b341; border-color:#e3b341; }
+  .hl-tag.unk { color:var(--muted); }
+  .hl-regex { font-family:monospace; font-size:.74rem; background:var(--surface-2); border-radius:5px; padding:.12rem .4rem; display:inline-block; margin-top:.25rem; word-break:break-all; }
+  /* compile result: left = input (semantic) rules · right = compiled verdict */
+  .hl-split { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.25fr); gap:.35rem .55rem; align-items:start; }
+  .hl-split .col-h { font-size:.74rem; opacity:.7; border-bottom:1px solid var(--line); padding-bottom:.2rem; }
+  .hl-cin { font-size:.82rem; padding:.3rem .4rem; border:1px solid var(--line); border-radius:6px; background:var(--surface-2); }
+  .hl-cout { padding:.3rem .4rem; border:1px solid var(--line); border-radius:6px; }
+  .hl-cbar { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; margin:.6rem 0 .2rem; }
+  .hl-cbar select, .hl-cbar input.t { padding:.2rem .35rem; border:1px solid var(--line); border-radius:5px; background:transparent; color:inherit; }
   .scopecards { display:grid; gap:.4rem; }
   .scopecard { border:1px solid var(--line); border-radius:7px; padding:.45rem .55rem; display:grid; gap:.25rem; }
   .scopecard b { font-size:.82rem; }
@@ -168,7 +245,7 @@ _PAGE = r"""<!DOCTYPE html>
   .cnt { font-size:.7rem; color:var(--muted); white-space:nowrap; }
   /* compact per-project mode pill (native select styled as a chip) */
   .modectl { display:inline-flex; }
-  .modesel { font:inherit; font-size:.68rem; line-height:1.4; border-radius:999px; padding:.1rem 1.25rem .1rem .55rem;
+  .modesel { font:inherit; font-size:.68rem; line-height:1.4; border-radius:var(--radius-sm); padding:.12rem 1.25rem .12rem .55rem;
     border:1px solid var(--line); color:var(--muted); cursor:pointer; -webkit-appearance:none; appearance:none;
     background:var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cpath d='M1 2.5 4 5.5 7 2.5' stroke='%23999' fill='none' stroke-width='1.2'/%3E%3C/svg%3E") no-repeat right .45rem center; }
   .modesel:hover { border-color:var(--line-strong); }
@@ -178,8 +255,8 @@ _PAGE = r"""<!DOCTYPE html>
   .sessitem { padding:.04rem 0; }
   .sesshead { display:flex; gap:.4rem; align-items:center; padding:.27rem .4rem; border-radius:7px; cursor:pointer; }
   .sesshead:hover { background:var(--surface-2); } .sesshead.cur { background:color-mix(in srgb,var(--blue) 15%, Canvas); }
-  .caret { width:.8rem; opacity:.5; text-align:center; font-size:.7rem; flex:none; }
-  .srctag { font-size:.62rem; border-radius:999px; padding:.07rem .45rem; color:#fff; font-weight:700; letter-spacing:.02em; white-space:nowrap; flex:none; }
+  .srctag { font-size:.6rem; border-radius:4px; padding:.07rem .4rem; color:#fff; font-weight:600; letter-spacing:.02em;
+    text-transform:uppercase; white-space:nowrap; flex:none; }
   .srctag.claude { background:#d97706; } .srctag.codex { background:#2563eb; }
   .sname { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .smeta { font-size:.75rem; color:var(--muted); }
@@ -236,13 +313,15 @@ _PAGE = r"""<!DOCTYPE html>
   .dh { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.35rem; }
   .dh-tool { font-weight:700; font-size:.95rem; }
   .dh-status { font-size:.72rem; border:1px solid var(--line); border-radius:4px; padding:0 .35rem; }
-  .dcmd { background:var(--surface-2); border-left:2px solid var(--blue); border-radius:5px; padding:.35rem .55rem; margin-bottom:.6rem;
-          white-space:pre-wrap; word-break:break-word; max-height:7rem; overflow:auto; font-size:.8rem; font-family:var(--mono); }
+  .dcmd { background:var(--surface-2); border-left:2px solid var(--blue); border-radius:5px; padding:.45rem .65rem; margin-bottom:.6rem;
+          white-space:pre-wrap; word-break:break-word; min-height:18rem; max-height:min(34rem, 52vh);
+          overflow:auto; font-size:.8rem; font-family:var(--mono); }
   .dcard { border:1px solid var(--line); border-radius:8px; padding:.4rem .55rem; margin-bottom:.6rem; }
   .dcard-h { font-size:.78rem; font-weight:600; opacity:.85; margin-bottom:.3rem; }
-  .dcard-h.clickable { cursor:pointer; opacity:.72; margin-bottom:0; }
+  .dcard-h.clickable { cursor:pointer; opacity:.72; margin-bottom:0; display:flex; align-items:center; gap:.25rem; }
   .dcard-h.clickable:hover { opacity:1; }
   .dcard pre { margin:.35rem 0 0; max-height:24rem; }
+  .dlog pre { max-height:min(44rem, 66vh); }
   .lyrrow { border-top:1px solid var(--line); padding:.35rem 0 .25rem; }
   .lyrrow:first-of-type { border-top:0; }
   .lyrrow.focus { background:#3b82f614; border-radius:6px; padding:.35rem .3rem .25rem; }
@@ -270,53 +349,138 @@ _PAGE = r"""<!DOCTYPE html>
   .dchip { border-color:var(--amber); opacity:1; }
   .dchip.deny { border-color:var(--red); color:var(--red); }
   .dchip.esc { border-color:var(--amber); color:var(--amber); }
-  .harnesspanel { border:1px solid var(--blue); border-radius:8px; padding:.45rem .6rem; margin:.6rem 0 .8rem; background:#3b82f612; }
-  .harnesspanel.service { border-color:var(--green); background:#22a35a12; }
+  /* per-session context: Service harness + 3-Layer harness, side by side, collapsed by default */
+  .hpanels { display:flex; flex-direction:column; gap:.5rem; margin:.5rem 0 .85rem; }
+  .harnesspanel { border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); min-width:0; }
+  .hp-ico { color:var(--muted); flex:none; }
+  .harnesspanel.service .hp-ico { color:var(--green); }
+  .harnesspanel.layer .hp-ico { color:var(--accent); }
+  .hp-name { font-weight:600; font-size:.82rem; white-space:nowrap; }
+  .hp-chips { display:flex; gap:.35rem; flex-wrap:wrap; }
+  .hp-acts { display:flex; gap:.4rem; flex-wrap:wrap; }
+  .hl-compilebox { border:1px solid var(--line); border-radius:var(--radius); padding:.65rem .7rem; margin-bottom:.75rem; background:var(--surface); }
+  /* compact top controls (run mode + rule compiler) so the Layer editors below are the focus */
+  .hl-controls { display:flex; gap:.7rem; align-items:center; flex-wrap:wrap; padding:.5rem .65rem; border:1px solid var(--line);
+    border-radius:var(--radius); background:var(--surface); margin-bottom:.3rem; }
+  .hl-controls .ctl { display:flex; align-items:center; gap:.4rem; }
+  .hl-controls .ctl label { font-size:.74rem; color:var(--muted); font-weight:600; white-space:nowrap; }
+  .hl-controls select { padding:.2rem .45rem; border:1px solid var(--line); border-radius:var(--radius-sm); background:Canvas; color:inherit; font:inherit; }
+  .hl-controls .sep { width:1px; align-self:stretch; background:var(--line); margin:0 .05rem; }
+  .hl-secthead { font-size:.66rem; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:700;
+    margin:.7rem 0 .35rem; padding-bottom:.25rem; border-bottom:1px solid var(--line); }
   /* project-first 3-Layer editor: a project picker selects whose harness you edit */
   .hp-picker { display:flex; gap:.35rem; align-items:center; flex-wrap:wrap; margin:.1rem 0 .7rem; }
   .hp-proj { font-size:.8rem; padding:.18rem .6rem; border-radius:999px; }
   .hp-proj.cur { background:var(--blue); color:#fff; border-color:var(--blue); }
-  .harnesspanel .hp-head { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }
-  .hp-body { margin:.45rem 0 .1rem; display:grid; gap:.5rem; }
+  .harnesspanel .hp-head { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; padding:.5rem .6rem; cursor:pointer; border-radius:var(--radius); }
+  .harnesspanel .hp-head:hover { background:var(--surface-2); }
+  .hp-body { padding:.05rem .6rem .6rem; display:grid; gap:.5rem; }
   .hp-body h4 { margin:.1rem 0; font-size:.75rem; opacity:.75; text-transform:uppercase; letter-spacing:.03em; }
   .hp-body .it { font-size:.82rem; margin:.12rem 0 .12rem .3rem; }
   @media (max-width: 900px) {
     main { grid-template-columns: 1fr; }
+    .resize-handle { display:none; }
     aside, #detail { max-height:16rem; border:0; border-bottom:1px solid var(--line); }
+    main.left-collapsed aside, main.right-collapsed #detail { max-height:3.4rem; }
+    main.left-collapsed aside .panehead, main.right-collapsed #detail .panehead {
+      flex-direction:row; align-items:center; gap:.45rem; padding:.15rem 0 .35rem;
+    }
+    main.left-collapsed aside h2, main.right-collapsed #detail h2 {
+      writing-mode:horizontal-tb; transform:none; margin:0;
+    }
     #canvas { grid-template-columns: 1fr; }
     .scopedcrow { grid-template-columns: 1fr; }
+  }
+  /* ===== monochrome line-icons + status dots (replaces all emoji) ===== */
+  .ico-i { display:inline-flex; align-items:center; justify-content:center; vertical-align:-.12em; flex:none; color:inherit; }
+  .ico-i svg { display:block; width:1em; height:1em; }
+  .tname { display:inline-flex; align-items:center; gap:.34rem; white-space:nowrap; }
+  .vmark { display:inline-flex; align-items:center; gap:.3rem; }
+  .dot { width:.55rem; height:.55rem; }
+  .badge .dot, #mode .dot { width:.5rem; height:.5rem; }
+  #mode { display:inline-flex; align-items:center; gap:.35rem; }
+  #mode.enf { color:var(--amber); border-color:color-mix(in srgb,var(--amber) 45%,var(--line));
+    background:color-mix(in srgb,var(--amber) 9%, Canvas); }
+  .langbtn { font-weight:600; min-width:2.3rem; text-align:center; display:inline-flex; align-items:center; gap:.3rem; justify-content:center; }
+  /* ===== top bar minimal → harness/scope controls live in the sidebar footer ===== */
+  #sidebar { display:flex; flex-direction:column; }
+  #sessions { flex:1 1 auto; }
+  .sidetop { padding:.15rem .15rem .5rem; }
+  .sidetop button { display:inline-flex; align-items:center; gap:.4rem; justify-content:center; width:100%; font-weight:600; }
+  main.left-collapsed .sidetop { display:none; }
+  /* ===== harness settings modal — two-pane (target rail + editor) ===== */
+  #harnessModal .modalbox { width:min(60rem,95vw); }
+  #harnessBody.hl-shell { display:grid; grid-template-columns:13.5rem 1fr; min-height:0; flex:1; overflow:hidden; padding:0; }
+  .hl-rail { border-right:1px solid var(--line); background:var(--surface); padding:.5rem; overflow:auto;
+    display:flex; flex-direction:column; gap:.12rem; }
+  .hl-railhead { font-size:.62rem; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); padding:.35rem .5rem .2rem; }
+  .hl-tgt { display:flex; align-items:center; gap:.45rem; padding:.42rem .55rem; border-radius:var(--radius-sm); cursor:pointer;
+    font-size:.82rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .hl-tgt:hover { background:var(--surface-2); }
+  .hl-tgt.cur { background:var(--accent-weak); color:var(--blue); font-weight:600; }
+  .hl-tgt .ico-i { color:var(--muted); } .hl-tgt.cur .ico-i { color:var(--blue); }
+  .hl-tgt .nm { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .hl-content { padding:.8rem .95rem 1.1rem; overflow:auto; min-width:0; }
+  .hl-content .hl-layer { background:Canvas; border-radius:var(--radius); padding:.75rem .85rem; }
+  .hl-lhead { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+  .hl-lbadge { font-size:.6rem; font-weight:700; letter-spacing:.04em; border:1px solid var(--line-strong);
+    border-radius:4px; padding:.06rem .36rem; color:var(--muted); }
+  .hl-lbadge.l1 { color:var(--red); border-color:color-mix(in srgb,var(--red) 40%,var(--line)); }
+  .hl-lbadge.l2 { color:var(--blue); border-color:color-mix(in srgb,var(--blue) 40%,var(--line)); }
+  .hl-lbadge.l3 { color:var(--amber); border-color:color-mix(in srgb,var(--amber) 40%,var(--line)); }
+  .hl-lbadge.mode { color:var(--green); border-color:color-mix(in srgb,var(--green) 40%,var(--line)); }
+  .hl-ltitle { font-size:.85rem; font-weight:600; }
+  .hl-lock { display:inline-flex; align-items:center; gap:.3rem; }
+  .hl-adv { border:1px solid var(--line); border-radius:var(--radius); margin-top:.2rem; overflow:hidden; }
+  .hl-adv > summary { cursor:pointer; padding:.5rem .7rem; font-size:.8rem; font-weight:600; color:var(--muted);
+    list-style:none; display:flex; align-items:center; gap:.4rem; }
+  .hl-adv > summary::-webkit-details-marker { display:none; }
+  .hl-adv[open] > summary { border-bottom:1px solid var(--line); }
+  .hl-adv[open] > summary .caret { transform:rotate(90deg); }
+  .hl-advbody { padding:.6rem .7rem .7rem; }
+  @media (max-width:760px){
+    #harnessBody.hl-shell { grid-template-columns:1fr; }
+    .hl-rail { border-right:0; border-bottom:1px solid var(--line); flex-direction:row; flex-wrap:wrap; }
   }
 </style>
 </head>
 <body>
 <header>
-  <h1>harness-lens <span class="muted">live</span></h1>
-  <button id="mode" title="모드 전환">mode: …</button>
-  <button id="harness" title="전역 base와 프로젝트별 하네스 보기">⚙ 하네스</button>
-  <button id="scopes" title="프로젝트/세션별 하네스 오버레이">프로젝트 하네스</button>
+  <h1><span class="logo"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.3"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg></span>harness-lens<span class="tag">live</span></h1>
   <span class="grow"></span>
+  <button id="mode"></button>
+  <button id="lang" class="langbtn">EN</button>
   <span id="pending" class="badge" style="display:none"></span>
-  <span id="conn" class="badge">●</span>
+  <span id="conn" class="badge"></span>
 </header>
-<main>
-  <aside><h2>세션</h2><div id="sessions"></div></aside>
+<main id="layout">
+  <aside id="sidebar">
+    <div class="sidetop"><button id="harness"></button></div>
+    <div class="panehead"><h2 id="sessTitle">세션</h2><button id="leftToggle" class="pane-toggle" aria-expanded="true"><svg style="transform:rotate(180deg)" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4l4 4-4 4"/></svg></button></div>
+    <div id="sessions"></div>
+  </aside>
+  <div id="leftResize" class="resize-handle" role="separator" aria-orientation="vertical" aria-label="세션 패널 폭 조절" title="드래그해 세션 패널 폭 조절"></div>
   <div id="canvas"></div>
-  <div id="detail"><h2>상세</h2><div id="detail-body" class="muted">노드를 선택하세요.</div></div>
+  <div id="rightResize" class="resize-handle" role="separator" aria-orientation="vertical" aria-label="상세 패널 폭 조절" title="드래그해 상세 패널 폭 조절"></div>
+  <div id="detail">
+    <div class="panehead"><h2 id="detailTitle">상세</h2><button id="rightToggle" class="pane-toggle" aria-expanded="true"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4l4 4-4 4"/></svg></button></div>
+    <div id="detail-body" class="muted">노드를 선택하세요.</div>
+  </div>
 </main>
 <div id="scopeModal" class="modal" style="display:none">
   <div class="modalbox">
-    <div class="modalhead"><b>정책 스코프</b><span class="muted">프로젝트(cwd)/세션별로 전역 base 위에 덮어씀</span>
-      <span class="grow"></span><button id="scopeAdd">+ 추가</button><button id="scopeClose">✕</button></div>
+    <div class="modalhead"><b id="scopeTitle">정책 스코프</b><span id="scopeSub" class="muted">프로젝트(cwd)/세션별로 전역 base 위에 덮어씀</span>
+      <span class="grow"></span><button id="scopeAdd">+ 추가</button><button id="scopeClose" class="iconbtn"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
     <div id="scopeList"></div>
     <div class="modalfoot"><span id="scopeMsg" class="muted"></span><span class="grow"></span><button id="scopeSave">저장</button></div>
   </div>
 </div>
 <div id="harnessModal" class="modal" style="display:none">
   <div class="modalbox">
-    <div class="modalhead"><b>⚙ 하네스 (3-Layer)</b>
-      <span class="hl-badge">사람이 직접 편집 · AHE 자동진화는 Layer 3만</span>
-      <span class="grow"></span><button id="harnessClose">✕</button></div>
-    <div id="harnessBody" style="overflow:auto; padding:.6rem .8rem;"></div>
+    <div class="modalhead"><b id="harnessTitle">하네스 (3-Layer)</b>
+      <span class="hl-badge" id="harnessBadge">사람이 직접 편집 · AHE 자동진화는 Layer 3만</span>
+      <span class="grow"></span><button id="harnessClose" class="iconbtn"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
+    <div id="harnessBody" class="hl-shell"></div>
     <div class="modalfoot"><span id="harnessMsg" class="muted"></span></div>
   </div>
 </div>
@@ -327,23 +491,320 @@ const $ = s => document.querySelector(s);
 const el = (t, c, x) => { const n = document.createElement(t); if (c) n.className = c; if (x != null) n.textContent = x; return n; };
 const api = (p, opt={}) => fetch(p, { ...opt, headers: { ...H, ...(opt.headers||{}) } });
 
+// One disclosure chevron shape, reused everywhere instead of the old "→ / ↓ / ←" text arrows.
+const CHEV_SVG = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4l4 4-4 4"/></svg>';
+function chevron(){ const s = el("span","caret"); s.innerHTML = CHEV_SVG; return s; }       // rotated by an .open ancestor via CSS
+function chevHTML(deg){ return '<svg style="transform:rotate('+deg+'deg)" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4l4 4-4 4"/></svg>'; }
+function setChev(btn, deg){ btn.innerHTML = chevHTML(deg); }                                // for buttons that point a specific way
+
+// ===== i18n (KO / EN) — every visible string flows through t(); switchable at runtime =====
+let LANG = (function(){ try { return localStorage.getItem("hl-lang") || ((navigator.language||"").toLowerCase().startsWith("ko") ? "ko" : "en"); } catch(_) { return "ko"; } })();
+const I18N = {
+ ko: {
+  "mode.toggle":"모드 전환","mode.enforce":"enforce","mode.observe":"observe","mode.observeNote":"기록만","mode.enforceNote":"차단/승인",
+  "conn.connected":"연결됨","conn.disconnected":"끊김","lang.switch":"언어 / Language",
+  "pane.sessions":"세션","pane.detail":"상세",
+  "pane.sessions.collapse":"세션 패널 접기","pane.sessions.expand":"세션 패널 펼치기",
+  "pane.detail.collapse":"상세 패널 접기","pane.detail.expand":"상세 패널 펼치기",
+  "pane.sessions.resize":"세션 패널 폭 조절","pane.detail.resize":"상세 패널 폭 조절","pane.resize.drag":"드래그해 패널 폭 조절",
+  "detail.empty":"노드를 선택하세요.",
+  "footer.harness":"하네스","footer.harness.tip":"전역 base와 프로젝트별 하네스 보기",
+  "footer.scopes":"프로젝트 하네스","footer.scopes.tip":"프로젝트/세션별 하네스 오버레이",
+  "common.loading":"불러오는 중…","common.save":"저장","common.saving":"저장 중…","common.close":"닫기","common.delete":"삭제",
+  "common.none":"(없음)","common.add":"추가","common.toggle":"접기/펼치기","common.input":"입력","common.output":"출력",
+  "common.failPrefix":"실패: ","common.errorPrefix":"오류: ","common.loadFail":"불러오기 실패",
+  "unit.sessions":"세션","unit.turns":"턴","unit.steps":"단계",
+  "time.justNow":"방금","time.minAgo":"분 전","time.hourAgo":"시간 전","time.dayAgo":"일 전",
+  "status.running":"실행 중","status.completed":"완료","status.failed":"실패","status.aborted":"중단","status.pending_approval":"승인 대기",
+  "sidebar.empty":"아직 추적된 세션이 없습니다.","mode.global":"전역",
+  "tip.projPinned":"이 프로젝트 고정: ","tip.projFollowsGlobal":"전역 모드 따름","tip.deleteConv":"이 대화 삭제",
+  "confirm.deleteConv":"이 대화를 삭제할까요?","cwd.none":"cwd 미관측",
+  "canvas.emptyNoSessions":"아직 추적된 세션이 없습니다 — Claude Code / Codex 에서 작업하면 대화가 여기에 나타납니다.",
+  "canvas.selectConv":"왼쪽에서 대화를 선택하세요.","canvas.loadingConv":"대화를 불러오는 중…",
+  "traj.heading":"동작 내역 — 턴(요청)별","traj.time":"시간순","traj.category":"카테고리","traj.toggleTip":"보기 전환: 시간순 ↔ 카테고리별",
+  "traj.noActions":"아직 동작이 없습니다.","ask.label":"요청","ask.collapse":"접기","ask.expandAll":"전체 보기","req.none":"(요청 미관측)",
+  "cat.search":"탐색·읽기","cat.impl":"구현·수정","cat.verify":"테스트·검증","cat.external":"외부도구","cat.run":"실행·기타","cat.agent":"서브에이전트","cat.other":"기타",
+  "hp.title":"3-Layer 하네스","hp.titleTip":"클릭해 적용 규칙 보기","hp.genDetector":"생성 detector",
+  "hp.genDetector.tip":"컴파일러가 만든 검증된 정규식 detector — 매칭 시 hook 에서 escalate(승인 큐)",
+  "hp.repoPolicy":"repo 정책","hp.repoPolicy.tip":"이 repo 의 .harness-lens/policy.yaml — git 으로 팀과 공유되는 거버넌스 (PR 로 편집)",
+  "hp.l3Breach":"L3 임계 초과","hp.l3Breach.tip":"Layer 3 한계선 초과 — 차단은 아니고 경보/자동진화 트리거 대상",
+  "hp.l3.fail":"실패","hp.l3.slow":"지연","hp.l3.lowq":"저품질",
+  "hp.detailTip":"적용 규칙 자세히 보기","hp.editProject":"이 프로젝트 하네스 편집","hp.globalBase":"전역 기본",
+  "hp.effective":"적용 하네스","hp.projRules":"이 프로젝트 규칙","hp.override":"오버라이드","hp.firedThisSession":"이 세션에서 걸림",
+  "prov.repo":"repo","prov.proj":"이 프로젝트","prov.glob":"전역",
+  "layer1.full":"Layer 1 — 절대 규칙 (안전·위반 금지)","layer1.short":"절대 규칙",
+  "layer2.full":"Layer 2 — 행동 기준 (매 단계 품질 심사)","layer2.short":"행동 기준",
+  "layer3.full":"Layer 3 — 품질 한계선 (자동 임계값)","layer3.short":"품질 한계선",
+  "svc.title":"서비스 하네스 (스캐폴딩)","svc.scanning":"스캐폴딩 스캔 중…","svc.none":"감지된 서비스 스캐폴딩이 없습니다.",
+  "svc.aheEditable":"AHE 편집가능","svc.chipTip":"클릭 — {0} 프롬프트 보기: {1}",
+  "lyr.tip":"규칙·판정 보기","verdict.deny":"차단","verdict.escalate":"승인대기","verdict.pass":"통과",
+  "appr.waiting":"대기","appr.waitingFor":"승인 대기 — ","appr.approve":"승인","appr.deny":"거부","appr.denyReason":"거부 사유(선택)","appr.pendingBadge":"승인 대기 ",
+  "detail.evalTitle":"3-Layer 평가","detail.firedRule":"걸린 규칙","fired.deny":"걸림","fired.escalate":"걸림",
+  "verdict.passNoViol":"통과 (위반 없음)","verdict.l3monitor":"런 전체 모니터링 (개별 차단 아님)","verdict.dcStruct":"구조 검사 통과 · 자연어 기준은 비동기 Judge 채점",
+  "detail.svcThisAction":"서비스 하네스 (이 동작)","detail.chipClickPrompt":"칩 클릭 → 실제 프롬프트","detail.noScaffold":"감지된 스캐폴딩 없음 (일반 셸/툴 동작)",
+  "detail.svcPrefix":"서비스 하네스","detail.noPrompt":"프롬프트 내용을 찾지 못했습니다.",
+  "scope.title":"정책 스코프","scope.subtitle":"프로젝트(cwd)/세션별로 전역 base 위에 덮어씀","scope.empty":"스코프가 없습니다. '+ 추가'로 만드세요.",
+  "scope.name":"이름","scope.matchCwd":"cwd 경로","scope.matchSession":"세션 ID","scope.matchPlaceholder":"/path/to/project 또는 세션 ID","scope.modeInherit":"mode: 상속",
+  "scope.addInvPlaceholder":"추가 invariant (한 줄에 하나, 전역 규칙 위에 가산)","scope.addL2":"추가 L2","scope.addCriterion":"+ 기준","scope.addL2Placeholder":"추가 Layer-2 기준",
+  "scope.note":"전역 base는 그대로 적용되고, 이 scope의 항목만 추가/오버라이드됩니다.",
+  "scope.msgDraft":"현재 Flow의 cwd로 새 프로젝트 하네스 초안을 추가했습니다.","scope.msgMatched":"현재 Flow에 매칭되는 프로젝트 하네스가 목록에 있습니다.",
+  "scope.saved":"저장됨 — {0}개 스코프 적용 (즉시 반영)","scope.saveFail":"저장 실패 ({0})","scope.matchLabel":"match",
+  "harness.title":"하네스 (3-Layer)","harness.badge":"사람이 직접 편집 · AHE 자동진화는 Layer 3만",
+  "harness.savedImmediate":"저장됨 · 다음 단계부터 즉시 적용","harness.rejected":"거부: ","harness.projects":"대상",
+  "harness.globalBase":"전역 기본","harness.globalBaseTip":"모든 프로젝트 공통","harness.globalIntro":"전역 기본 — 모든 프로젝트에 공통으로 적용되는 3-Layer 입니다.","harness.layersSection":"레이어 편집",
+  "harness.l1Locked":"잠금 — 클릭해 편집","harness.l1Unlocked":"편집 중 — 잠그기","harness.l1Warn":"안전 규칙입니다. 저장 시 criteria.yaml 백업 후 즉시 반영됩니다.",
+  "harness.rulePlaceholder":"규칙 내용","harness.addRule":"+ 규칙 추가","harness.criterionPlaceholder":"기준 설명","harness.addCriterion":"+ 기준 추가",
+  "harness.l1Help":"어떤 경우에도 어기면 안 되는 규칙. AHE 자동진화는 절대 못 바꿉니다.","harness.l2Help":"LLM 심사관이 매 단계 점수를 매기는 기준. weight = 중요도.",
+  "harness.l3Help":"넘으면 경보/자동진화. AHE가 자동으로 조정하는 유일한 층.",
+  "harness.projIntro":"{0} — 전역 기본은 그대로 적용되고, 여기서는 이 폴더에만 더할 규칙·한계선을 정합니다.","harness.projMatch":"정확한 폴더 경로로 매칭: {0}",
+  "harness.modeTitle":"실행 모드","harness.modeHelp":"이 폴더 세션만 observe/enforce 로 고정합니다. 비우면 전역 모드를 따릅니다.",
+  "harness.modeInherit":"전역 모드 상속","harness.modeObserve":"observe (관측만)","harness.modeEnforce":"enforce (차단/승인)",
+  "harness.l1ProjHelp":"전역 규칙은 그대로 적용됩니다. 이 폴더 전용 규칙만 여기서 더하세요.","harness.l2ProjHelp":"전역 기준 위에 이 폴더 전용 기준을 더합니다.",
+  "harness.l3ProjHelp":"비우면 전역 값을 그대로 씁니다. 값을 넣으면 이 폴더만 그 값으로 덮어씁니다.",
+  "harness.addFolderRule":"+ 이 폴더 규칙","harness.folderRulePlaceholder":"이 폴더 전용 규칙","harness.addFolderCriterion":"+ 이 폴더 기준","harness.folderCriterionPlaceholder":"이 폴더 전용 기준",
+  "harness.saveProject":"이 프로젝트 저장","harness.savedProject":"저장됨 · {0} 의 다음 단계부터 적용","harness.saveFail":"저장 실패: ","harness.globalTag":"전역",
+  "compile.section":"고급 — 규칙 컴파일 (LLM 분류)","compile.btn":"규칙 컴파일 (LLM 분류)",
+  "compile.btnTip":"각 규칙이 결정론 detector로 강제 가능한지, semantic(→advisory/CI/Judge)인지 LLM이 분류합니다",
+  "compile.hookNote":"훅은 LLM을 못 부르므로 데몬이 claude -p / codex exec 로 대신 호출 — 세션과 무관.",
+  "compile.classifying":"분류 중… (LLM 호출)","compile.calling":"LLM 호출 중 — 호스트 CLI(claude/codex) 응답을 기다립니다… (수초 소요)",
+  "compile.fail":"컴파일 실패: ","compile.error":"컴파일 요청 오류: ",
+  "compile.tag.det":"결정론 detector","compile.tag.unk":"미분류","compile.tag.adv":"semantic → advisory",
+  "compile.summary":"분류 결과 — detector {0} · advisory {1} / 총 {2}","compile.llmUsed":" · LLM 사용됨","compile.builtinOnly":" · 내장 매칭만",
+  "compile.colInput":"입력 (semantic 하네스)","compile.colOutput":"컴파일 결과","compile.builtin":"내장 detector: ",
+  "compile.verifyOk":" ✓ 예시검증 통과","compile.verifyFail":" ✗ 예시검증 실패 → advisory 유지",
+  "compile.exportYaml":"YAML 내보내기","compile.toProject":"→ 프로젝트:","compile.pathPlaceholder":"프로젝트 경로 (예: /Users/me/work/app)","compile.toPath":"→ 경로:",
+  "compile.import":"이 프로젝트로 import","compile.importTip":"<프로젝트>/.harness-lens/policy.yaml 로 커밋(팀 공유). compiled 주석도 함께 기록됩니다.",
+  "compile.needPath":"프로젝트 경로가 필요합니다","compile.writing":"쓰는 중…","compile.savedTo":"저장됨: ",
+  "l3help.retry_threshold":"한 단계 재시도 허용 횟수 — 넘으면 경보","l3help.latency_multiplier":"평소 대비 몇 배 느리면 경보",
+  "l3help.failure_count_trigger":"연속 실패 몇 번에 경보/진화","l3help.quality_threshold":"Layer-2 품질 점수 하한 (0~1)",
+ },
+ en: {
+  "mode.toggle":"Toggle mode","mode.enforce":"enforce","mode.observe":"observe","mode.observeNote":"log only","mode.enforceNote":"block/approve",
+  "conn.connected":"connected","conn.disconnected":"disconnected","lang.switch":"Language / 언어",
+  "pane.sessions":"Sessions","pane.detail":"Detail",
+  "pane.sessions.collapse":"Collapse sessions panel","pane.sessions.expand":"Expand sessions panel",
+  "pane.detail.collapse":"Collapse detail panel","pane.detail.expand":"Expand detail panel",
+  "pane.sessions.resize":"Resize sessions panel","pane.detail.resize":"Resize detail panel","pane.resize.drag":"Drag to resize panel",
+  "detail.empty":"Select a node.",
+  "footer.harness":"Harness","footer.harness.tip":"View global base + per-project harness",
+  "footer.scopes":"Project harness","footer.scopes.tip":"Per-project / per-session harness overlay",
+  "common.loading":"Loading…","common.save":"Save","common.saving":"Saving…","common.close":"Close","common.delete":"Delete",
+  "common.none":"(none)","common.add":"Add","common.toggle":"Collapse / expand","common.input":"Input","common.output":"Output",
+  "common.failPrefix":"Failed: ","common.errorPrefix":"Error: ","common.loadFail":"Failed to load",
+  "unit.sessions":"sessions","unit.turns":"turns","unit.steps":"steps",
+  "time.justNow":"just now","time.minAgo":"m ago","time.hourAgo":"h ago","time.dayAgo":"d ago",
+  "status.running":"running","status.completed":"completed","status.failed":"failed","status.aborted":"aborted","status.pending_approval":"pending approval",
+  "sidebar.empty":"No tracked sessions yet.","mode.global":"global",
+  "tip.projPinned":"Pinned for this project: ","tip.projFollowsGlobal":"Follows global mode","tip.deleteConv":"Delete this conversation",
+  "confirm.deleteConv":"Delete this conversation?","cwd.none":"cwd unknown",
+  "canvas.emptyNoSessions":"No tracked sessions yet — work in Claude Code / Codex and conversations show up here.",
+  "canvas.selectConv":"Select a conversation on the left.","canvas.loadingConv":"Loading conversation…",
+  "traj.heading":"Activity — by turn (request)","traj.time":"Chronological","traj.category":"By category","traj.toggleTip":"Toggle view: chronological ↔ by category",
+  "traj.noActions":"No activity yet.","ask.label":"Request","ask.collapse":"Collapse","ask.expandAll":"Show all","req.none":"(request not observed)",
+  "cat.search":"Search · Read","cat.impl":"Implement · Edit","cat.verify":"Test · Verify","cat.external":"External tools","cat.run":"Run · Misc","cat.agent":"Sub-agents","cat.other":"Other",
+  "hp.title":"3-Layer harness","hp.titleTip":"Click to view active rules","hp.genDetector":"generated detectors",
+  "hp.genDetector.tip":"Verified regex detectors built by the compiler — on match the hook escalates (approval queue)",
+  "hp.repoPolicy":"repo policy","hp.repoPolicy.tip":"This repo's .harness-lens/policy.yaml — governance shared with the team via git (edit by PR)",
+  "hp.l3Breach":"L3 threshold exceeded","hp.l3Breach.tip":"Layer 3 limit exceeded — not a block; triggers alerts / auto-evolution",
+  "hp.l3.fail":"failures","hp.l3.slow":"slow","hp.l3.lowq":"low-quality",
+  "hp.detailTip":"View applied rules in detail","hp.editProject":"Edit this project's harness","hp.globalBase":"Global base",
+  "hp.effective":"Effective harness","hp.projRules":"this project's rules","hp.override":"override","hp.firedThisSession":"fired in this session",
+  "prov.repo":"repo","prov.proj":"this project","prov.glob":"global",
+  "layer1.full":"Layer 1 — Invariants (safety · never violate)","layer1.short":"Invariants",
+  "layer2.full":"Layer 2 — Domain criteria (per-step quality review)","layer2.short":"Domain criteria",
+  "layer3.full":"Layer 3 — QA thresholds (automatic limits)","layer3.short":"QA thresholds",
+  "svc.title":"Service harness (scaffolding)","svc.scanning":"Scanning scaffolding…","svc.none":"No service scaffolding detected.",
+  "svc.aheEditable":"AHE-editable","svc.chipTip":"Click — view {0} prompt: {1}",
+  "lyr.tip":"View rules · verdict","verdict.deny":"blocked","verdict.escalate":"awaiting approval","verdict.pass":"passed",
+  "appr.waiting":"waiting","appr.waitingFor":"Awaiting approval — ","appr.approve":"Approve","appr.deny":"Deny","appr.denyReason":"Reason for denial (optional)","appr.pendingBadge":"Pending approvals ",
+  "detail.evalTitle":"3-Layer evaluation","detail.firedRule":"fired rule","fired.deny":"fired","fired.escalate":"fired",
+  "verdict.passNoViol":"Passed (no violation)","verdict.l3monitor":"Run-wide monitoring (not a per-step block)","verdict.dcStruct":"Structural check passed · NL criteria scored async by the Judge",
+  "detail.svcThisAction":"Service harness (this action)","detail.chipClickPrompt":"Click a chip → actual prompt","detail.noScaffold":"No scaffolding detected (plain shell/tool action)",
+  "detail.svcPrefix":"Service harness","detail.noPrompt":"Could not find the prompt content.",
+  "scope.title":"Policy scopes","scope.subtitle":"Override the global base per project (cwd) / session","scope.empty":"No scopes. Create one with '+ Add'.",
+  "scope.name":"Name","scope.matchCwd":"cwd path","scope.matchSession":"Session ID","scope.matchPlaceholder":"/path/to/project or session ID","scope.modeInherit":"mode: inherit",
+  "scope.addInvPlaceholder":"Extra invariants (one per line, added on top of global rules)","scope.addL2":"Extra L2","scope.addCriterion":"+ Criterion","scope.addL2Placeholder":"Extra Layer-2 criterion",
+  "scope.note":"The global base still applies; only this scope's items are added/overridden.",
+  "scope.msgDraft":"Added a new project-harness draft for the current Flow's cwd.","scope.msgMatched":"A project harness matching the current Flow is in the list.",
+  "scope.saved":"Saved — {0} scope(s) applied (effective immediately)","scope.saveFail":"Save failed ({0})","scope.matchLabel":"match",
+  "harness.title":"Harness (3-Layer)","harness.badge":"Human-edited · AHE auto-evolves Layer 3 only",
+  "harness.savedImmediate":"Saved · effective from the next step","harness.rejected":"Rejected: ","harness.projects":"Targets",
+  "harness.globalBase":"Global base","harness.globalBaseTip":"Shared by all projects","harness.globalIntro":"Global base — the 3-Layer harness applied to every project.","harness.layersSection":"Layer editing",
+  "harness.l1Locked":"Locked — click to edit","harness.l1Unlocked":"Editing — lock","harness.l1Warn":"Safety rules. On save, criteria.yaml is backed up and applied immediately.",
+  "harness.rulePlaceholder":"Rule text","harness.addRule":"+ Add rule","harness.criterionPlaceholder":"Criterion description","harness.addCriterion":"+ Add criterion",
+  "harness.l1Help":"Rules that must never be broken. AHE auto-evolution can never change them.","harness.l2Help":"Criteria an LLM judge scores at every step. weight = importance.",
+  "harness.l3Help":"Crossing these alerts / triggers evolution. The only layer AHE adjusts automatically.",
+  "harness.projIntro":"{0} — the global base still applies; here you set rules/limits added for this folder only.","harness.projMatch":"Matched by exact folder path: {0}",
+  "harness.modeTitle":"Run mode","harness.modeHelp":"Pin only this folder's sessions to observe/enforce. Leave blank to follow the global mode.",
+  "harness.modeInherit":"Inherit global mode","harness.modeObserve":"observe (monitor only)","harness.modeEnforce":"enforce (block/approve)",
+  "harness.l1ProjHelp":"Global rules still apply. Add only this folder's own rules here.","harness.l2ProjHelp":"Add this folder's own criteria on top of the global ones.",
+  "harness.l3ProjHelp":"Blank = use the global value. Set a value to override it for this folder only.",
+  "harness.addFolderRule":"+ Folder rule","harness.folderRulePlaceholder":"Rule for this folder only","harness.addFolderCriterion":"+ Folder criterion","harness.folderCriterionPlaceholder":"Criterion for this folder only",
+  "harness.saveProject":"Save this project","harness.savedProject":"Saved · effective for {0} from the next step","harness.saveFail":"Save failed: ","harness.globalTag":"global",
+  "compile.section":"Advanced — rule compiler (LLM classification)","compile.btn":"Compile rules (LLM classify)",
+  "compile.btnTip":"Classifies whether each rule is enforceable as a deterministic detector or is semantic (→advisory/CI/Judge)",
+  "compile.hookNote":"Hooks can't call an LLM, so the daemon calls claude -p / codex exec instead — independent of any session.",
+  "compile.classifying":"Classifying… (LLM call)","compile.calling":"Calling the LLM — waiting for the host CLI (claude/codex)… (a few seconds)",
+  "compile.fail":"Compile failed: ","compile.error":"Compile request error: ",
+  "compile.tag.det":"deterministic detector","compile.tag.unk":"unclassified","compile.tag.adv":"semantic → advisory",
+  "compile.summary":"Result — detector {0} · advisory {1} / total {2}","compile.llmUsed":" · LLM used","compile.builtinOnly":" · built-in matching only",
+  "compile.colInput":"Input (semantic harness)","compile.colOutput":"Compiled result","compile.builtin":"built-in detector: ",
+  "compile.verifyOk":" ✓ example-check passed","compile.verifyFail":" ✗ example-check failed → kept advisory",
+  "compile.exportYaml":"Export YAML","compile.toProject":"→ Project:","compile.pathPlaceholder":"Project path (e.g. /Users/me/work/app)","compile.toPath":"→ Path:",
+  "compile.import":"Import into this project","compile.importTip":"Commits to <project>/.harness-lens/policy.yaml (team-shared). The compiled annotation is recorded too.",
+  "compile.needPath":"A project path is required","compile.writing":"Writing…","compile.savedTo":"Saved: ",
+  "l3help.retry_threshold":"Retries allowed per step — alert when exceeded","l3help.latency_multiplier":"How many× slower than usual triggers an alert",
+  "l3help.failure_count_trigger":"Consecutive failures that trigger an alert/evolution","l3help.quality_threshold":"Lower bound for the Layer-2 quality score (0–1)",
+ },
+};
+function t(k){ const d = I18N[LANG] || I18N.ko; let s = (k in d) ? d[k] : (k in I18N.ko ? I18N.ko[k] : k);
+  for (let i=1;i<arguments.length;i++) s = s.replace("{"+(i-1)+"}", arguments[i]); return s; }
+function statusLabel(s){ return (("status."+s) in I18N[LANG] || ("status."+s) in I18N.ko) ? t("status."+s) : (s||""); }
+const tr = t;  // alias: use inside functions whose parameter is named `t` (the task), where `t` is shadowed
+function qty(n, key){ return LANG === "ko" ? (n + t(key)) : (n + " " + t(key)); }  // "4턴" / "4 turns"
+
+// ===== monochrome line-icons (one set, currentColor, sized 1em) — replaces every emoji =====
+const ICONS = {
+  dot:'<circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>',
+  search:'<circle cx="11" cy="11" r="6"/><path d="M20 20l-3.6-3.6"/>',
+  terminal:'<rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M7 9.5l3 2.5-3 2.5M12.5 14.5h4.5"/>',
+  edit:'<path d="M4 20h4l10-10-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+  book:'<path d="M5 4h11a1 1 0 0 1 1 1v15H6a1 1 0 0 1-1-1z"/><path d="M5 17h12"/>',
+  globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.7 2.6 2.7 15.4 0 18M12 3c-2.7 2.6-2.7 15.4 0 18"/>',
+  cpu:'<rect x="6.5" y="6.5" width="11" height="11" rx="2"/><path d="M9.5 2v3M14.5 2v3M9.5 19v3M14.5 19v3M2 9.5h3M2 14.5h3M19 9.5h3M19 14.5h3"/>',
+  list:'<path d="M8.5 6h12M8.5 12h12M8.5 18h12"/><path d="M4 6h.01M4 12h.01M4 18h.01"/>',
+  check:'<path d="M20 6.5L9.5 17 4 11.5"/>',
+  puzzle:'<path d="M14 3a2 2 0 0 0-4 0c0 .6-.5 1-1 1H6a1 1 0 0 0-1 1v3c0 .5-.4 1-1 1a2 2 0 0 0 0 4c.6 0 1 .5 1 1v3a1 1 0 0 0 1 1h3c.5 0 1-.4 1-1a2 2 0 0 1 4 0c0 .6.5 1 1 1h3a1 1 0 0 0 1-1v-3c0-.5.4-1 1-1a2 2 0 0 0 0-4c-.6 0-1-.5-1-1V5a1 1 0 0 0-1-1h-3c-.5 0-1-.4-1-1z"/>',
+  command:'<rect x="4" y="4.5" width="16" height="15" rx="2.5"/><path d="M9 14l3-5"/>',
+  route:'<circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/><path d="M6.5 9v4.5a3 3 0 0 0 3 3H15"/>',
+  plug:'<path d="M9 3v5M15 3v5"/><path d="M7 8h10v3a5 5 0 0 1-10 0z"/><path d="M12 16v5"/>',
+  file:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  box:'<path d="M21 7.5l-9-4.5-9 4.5v9l9 4.5 9-4.5z"/><path d="M3 7.5l9 4.5 9-4.5M12 12v9.5"/>',
+  scroll:'<path d="M7 4h9a2 2 0 0 1 2 2v11a3 3 0 0 0 3 3H9a2 2 0 0 1-2-2z"/><path d="M7 4a2 2 0 0 0-2 2v2.5h2"/>',
+  folder:'<path d="M3 7.5a2 2 0 0 1 2-2h3.6a2 2 0 0 1 1.4.6l1 1a2 2 0 0 0 1.4.6H19a2 2 0 0 1 2 2v7.2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  trash:'<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/>',
+  shield:'<path d="M12 3l7 3v5.5c0 4.2-3 7.4-7 8.5-4-1.1-7-4.3-7-8.5V6z"/>',
+  package:'<path d="M21 7.5l-9-4.5-9 4.5v9l9 4.5 9-4.5z"/><path d="M3 7.5l9 4.5 9-4.5M12 12v9.5M7.5 5.2l9 4.6"/>',
+  gear:'<circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v2.4M12 19.1v2.4M21.5 12h-2.4M4.9 12H2.5M18.7 5.3l-1.7 1.7M7 17l-1.7 1.7M18.7 18.7L17 17M7 7L5.3 5.3"/>',
+  lock:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/>',
+  unlock:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7.5a4 4 0 0 1 7.7-1.5"/>',
+  retry:'<path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 4v5h-5"/>',
+  alert:'<path d="M10.3 4l-7.5 13A1.5 1.5 0 0 0 4 19.3h16a1.5 1.5 0 0 0 1.3-2.3l-7.6-13a1.5 1.5 0 0 0-2.6 0z"/><path d="M12 9.5v4M12 16.4h.01"/>',
+  plus:'<path d="M12 5.5v13M5.5 12h13"/>',
+  x:'<path d="M5.5 5.5l13 13M18.5 5.5l-13 13"/>',
+  lang:'<path d="M3 5.5h8M7 3.5v2c0 3.5-1.8 6.3-4 8M4.5 9c.9 2.2 2.7 3.8 5 5"/><path d="M13 19l3.5-9 3.5 9M14.4 16h4.2"/>',
+  tool:'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>',
+};
+function svgStr(name){ const p = ICONS[name] || ICONS.tool;
+  return '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>'; }
+function ico(name, cls){ const s = el("span", "ico-i" + (cls ? " "+cls : "")); s.innerHTML = svgStr(name); return s; }
+function dotEl(color){ const d = el("span","dot"); if (color) d.style.background = color; return d; }
+
+const LAYOUT_KEY = "harness-lens-live-layout";
+const layoutState = { leftW:264, rightW:384, leftCollapsed:false, rightCollapsed:false };
+const COLLAPSED_PANE_W = 42;
+function clamp(n, min, max){ return Math.max(min, Math.min(max, n)); }
+function panelMax(side){
+  const vw = window.innerWidth || document.documentElement.clientWidth || 1200;
+  const floor = side === "left" ? 176 : 288;
+  if (vw <= 900) return side === "left" ? 560 : 820;
+  const other = side === "left"
+    ? (layoutState.rightCollapsed ? COLLAPSED_PANE_W : layoutState.rightW)
+    : (layoutState.leftCollapsed ? COLLAPSED_PANE_W : layoutState.leftW);
+  const centerMin = 320, handles = 12;
+  const viewportMax = vw - other - centerMin - handles;
+  const hardMax = side === "left" ? 560 : 820;
+  return Math.max(floor, Math.min(hardMax, viewportMax));
+}
+function restoreLayout(){
+  try {
+    const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || "{}");
+    if (saved && typeof saved === "object") Object.assign(layoutState, {
+      leftW: Number.isFinite(saved.leftW) ? saved.leftW : layoutState.leftW,
+      rightW: Number.isFinite(saved.rightW) ? saved.rightW : layoutState.rightW,
+      leftCollapsed: !!saved.leftCollapsed,
+      rightCollapsed: !!saved.rightCollapsed,
+    });
+  } catch (_) {}
+}
+function saveLayout(){
+  try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layoutState)); } catch (_) {}
+}
+function applyLayout(){
+  const root = $("#layout"); if (!root) return;
+  if (!layoutState.leftCollapsed) layoutState.leftW = clamp(layoutState.leftW, 176, panelMax("left"));
+  if (!layoutState.rightCollapsed) layoutState.rightW = clamp(layoutState.rightW, 288, panelMax("right"));
+  root.style.setProperty("--left-w", layoutState.leftCollapsed ? "2.65rem" : layoutState.leftW + "px");
+  root.style.setProperty("--right-w", layoutState.rightCollapsed ? "2.65rem" : layoutState.rightW + "px");
+  root.classList.toggle("left-collapsed", layoutState.leftCollapsed);
+  root.classList.toggle("right-collapsed", layoutState.rightCollapsed);
+  const left = $("#leftToggle"), right = $("#rightToggle");
+  if (left) {
+    setChev(left, layoutState.leftCollapsed ? 0 : 180);   // collapsed → points right (expand); open → points left (collapse)
+    left.title = t(layoutState.leftCollapsed ? "pane.sessions.expand" : "pane.sessions.collapse");
+    left.setAttribute("aria-expanded", String(!layoutState.leftCollapsed));
+  }
+  if (right) {
+    setChev(right, layoutState.rightCollapsed ? 180 : 0);  // collapsed → points left (expand); open → points right (collapse)
+    right.title = t(layoutState.rightCollapsed ? "pane.detail.expand" : "pane.detail.collapse");
+    right.setAttribute("aria-expanded", String(!layoutState.rightCollapsed));
+  }
+}
+function togglePane(side){
+  if (side === "left") layoutState.leftCollapsed = !layoutState.leftCollapsed;
+  else layoutState.rightCollapsed = !layoutState.rightCollapsed;
+  applyLayout(); saveLayout();
+}
+function startPanelResize(ev, side){
+  if (ev.button != null && ev.button !== 0) return;
+  if ((side === "left" && layoutState.leftCollapsed) || (side === "right" && layoutState.rightCollapsed)) return;
+  ev.preventDefault();
+  const startX = ev.clientX;
+  const startW = side === "left" ? layoutState.leftW : layoutState.rightW;
+  const handle = ev.currentTarget;
+  handle.classList.add("dragging");
+  if (handle.setPointerCapture) handle.setPointerCapture(ev.pointerId);
+  const move = e => {
+    const dx = e.clientX - startX;
+    if (side === "left") layoutState.leftW = clamp(startW + dx, 176, panelMax("left"));
+    else layoutState.rightW = clamp(startW - dx, 288, panelMax("right"));
+    applyLayout();
+  };
+  const up = () => {
+    handle.classList.remove("dragging");
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    saveLayout();
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up, { once:true });
+}
+function initLayout(){
+  restoreLayout(); applyLayout();
+  $("#leftToggle").onclick = () => togglePane("left");
+  $("#rightToggle").onclick = () => togglePane("right");
+  $("#leftResize").addEventListener("pointerdown", ev => startPanelResize(ev, "left"));
+  $("#rightResize").addEventListener("pointerdown", ev => startPanelResize(ev, "right"));
+  window.addEventListener("resize", applyLayout);
+}
+
 const state = { flows:{}, tasks:{}, steps:{}, approvals:{}, effective:{}, serviceHarness:{},
   expandedProjects:new Set(), expandedTurns:new Set(), expandedAsks:new Set(), loaded:new Set(), scopes:[],
   selFlow:null, sel:null,
-  mode:"observe", connected:false, snapRev:0, trajMode:"category" };
-const SRC_ICON = { claude_code:"🟧", codex:"🟦" };
+  mode:"observe", connected:false, snapRev:0, trajMode:"time" };
 const SRC_NAME = { claude_code:"claude", codex:"codex" };
 
-// Make each step read like an action, not a bare tool name.
-const TOOL_ICON = { Read:"📖", Glob:"🔎", Grep:"🔎", Bash:"⚡", Write:"✏️", Edit:"✏️", MultiEdit:"✏️",
-  NotebookEdit:"✏️", apply_patch:"✏️", WebSearch:"🌐", WebFetch:"🌐", Task:"🤖", Agent:"🤖", TodoWrite:"📝", Skill:"🧩", SlashCommand:"🧩" };
-function toolIcon(name){ if(!name) return "•"; if(name.startsWith("mcp__")) return "🔌"; return TOOL_ICON[name] || "🔧"; }
+// Each tool maps to a monochrome line-icon (see ICONS) so a step reads as an action, not a bare name.
+const TOOL_ICON = { Read:"book", Glob:"search", Grep:"search", Bash:"terminal", Write:"edit", Edit:"edit", MultiEdit:"edit",
+  NotebookEdit:"edit", apply_patch:"edit", WebSearch:"globe", WebFetch:"globe", Task:"cpu", Agent:"cpu", TodoWrite:"list", Skill:"puzzle", SlashCommand:"command" };
+function toolIconName(name){ if(!name) return "dot"; if(name.startsWith("mcp__")) return "plug"; return TOOL_ICON[name] || "tool"; }
 function toolLabel(name){ return name && name.startsWith("mcp__") ? name.replace(/^mcp__/,"").replace(/__/g," · ") : (name||"?"); }
+function toolNameEl(name){ const sp = el("span","tname"); sp.append(ico(toolIconName(name)), document.createTextNode(" " + toolLabel(name))); return sp; }
 // Service-harness (scaffolding) a step exercised — surfaced as chips so a sea of "Bash" steps
 // still shows which skill/workflow/rule/MCP/instruction governed each action.
-const USAGE_ICON = { skill:"🧩", command:"⌘", workflow:"🧭", invoke:"🧩", mcp:"🔌", mcp_config:"🔌",
-  instruction:"📄", cursor_rule:"📕", plugin:"🧱", import:"📄", script:"📜" };
-function usageLabel(u){ return (USAGE_ICON[u.kind]||"•") + " " + (u.kind==="mcp" ? toolLabel(u.name) : u.name); }
+const USAGE_ICON = { skill:"puzzle", command:"command", workflow:"route", invoke:"puzzle", mcp:"plug", mcp_config:"plug",
+  instruction:"file", cursor_rule:"book", plugin:"box", import:"file", script:"scroll" };
+function usageLabel(u){ return (u.kind==="mcp" ? toolLabel(u.name) : u.name); }
 // A one-line summary of a step's actual argument — so a wall of "Bash" steps is scannable
 // (the command), not all identical. Falls back to the most telling input field per tool.
 function stepSummary(s){
@@ -358,14 +819,16 @@ function stepSummary(s){
 }
 // A clickable service-harness chip — click shows the component's actual prompt in the detail panel.
 function usageChip(u, cwd){
-  const c = el("span","chip uchip", usageLabel(u));
-  c.title = "클릭 — " + u.kind + " 프롬프트 보기: " + u.name;
+  const c = el("span","chip uchip");
+  c.append(ico(USAGE_ICON[u.kind]||"tool"), document.createTextNode(" " + usageLabel(u)));
+  c.title = t("svc.chipTip", u.kind, u.name);
   c.onclick = (ev) => { ev.stopPropagation(); state.sel = null; showComponent(u.kind, u.name, cwd); };
   return c;
 }
-// Coarse category for grouping the trajectory: 탐색·읽기 / 구현 / 검증 / 외부도구 / 실행 / 서브에이전트.
-const CAT_LABEL = { search:"🔎 탐색·읽기", impl:"✏️ 구현·수정", verify:"✅ 테스트·검증",
-  external:"🌐 외부도구", run:"⚡ 실행·기타", agent:"🤖 서브에이전트", other:"• 기타" };
+// Coarse category for grouping the trajectory (icon name per category + a localized label).
+const CAT_ICON = { search:"search", impl:"edit", verify:"check", external:"globe", run:"terminal", agent:"cpu", other:"dot" };
+function catLabel(cat){ return t("cat."+cat); }
+function catHead(cat, n){ const h = el("div","cathead"); h.append(ico(CAT_ICON[cat]||"dot"), document.createTextNode(" " + catLabel(cat) + "  ·  " + n)); return h; }
 function stepCategory(s){
   const t = s.tool_name || "";
   const cmd = (stepSummary(s) || "").toLowerCase();
@@ -384,10 +847,10 @@ function stepCategory(s){
 const _CATS = new Set(["수집","실행","반영","조사","외부도구","기타","관측불가"]);
 function cleanTitle(s){ s=(s==null?"":(""+s)).trim(); if(!s||s[0]==="{"||s[0]==="[") return ""; return _CATS.has(s)?"":s; }
 function baseName(path){ path=(path||"").replace(/\/+$/,""); return path ? path.split("/").pop() : ""; }
-function projectLabel(f){ return f.cwd ? baseName(f.cwd) || f.cwd : "cwd 미관측"; }
+function projectLabel(f){ return f.cwd ? baseName(f.cwd) || f.cwd : t("cwd.none"); }
 // A project = one cwd folder; sessions of the same folder stack under it in the sidebar.
 function projKey(f){ return (f && f.cwd) ? (""+f.cwd).replace(/\/+$/,"") : "__nocwd__"; }
-function projName(cwd){ return baseName(cwd) || cwd || "cwd 미관측"; }
+function projName(cwd){ return baseName(cwd) || cwd || t("cwd.none"); }
 async function loadScopes(){
   try { state.scopes = (await (await api("/api/scopes")).json()).scopes || []; }
   catch(e){ state.scopes = state.scopes || []; }
@@ -414,10 +877,10 @@ function clip(s, n){ s = (s==null?"":(""+s)); return s.length > n ? s.slice(0,n)
 function relTime(ts){
   if (!ts) return "";
   const sec = Math.max(0, Date.now()/1000 - ts);
-  if (sec < 60) return "방금";
-  if (sec < 3600) return Math.floor(sec/60) + "분 전";
-  if (sec < 86400) return Math.floor(sec/3600) + "시간 전";
-  return Math.floor(sec/86400) + "일 전";
+  if (sec < 60) return t("time.justNow");
+  if (sec < 3600) return qty(Math.floor(sec/60), "time.minAgo");
+  if (sec < 86400) return qty(Math.floor(sec/3600), "time.hourAgo");
+  return qty(Math.floor(sec/86400), "time.dayAgo");
 }
 // The user's requests inside a session = top-level 'turn' tasks (subagents are nested below them).
 function turnTasks(flowId){
@@ -425,7 +888,7 @@ function turnTasks(flowId){
     .filter(t => t.flow_id === flowId && t.kind !== "subagent" && !t.parent_task_id)
     .sort((a,b) => a.seq - b.seq);
 }
-function requestLabel(t){ return cleanTitle(t && t.title) || "(요청 미관측)"; }
+function requestLabel(t){ return cleanTitle(t && t.title) || tr("req.none"); }
 function stepCountForTask(taskId){ return Object.values(state.steps).filter(s => s.task_id === taskId).length; }
 // Prefer landing on the most recent request that actually carries a prompt, not a blank turn.
 function defaultTurn(flowId){
@@ -500,15 +963,34 @@ function scheduleRender() { if (raf) return; raf = requestAnimationFrame(() => {
 
 // ---- rendering ----
 function renderMode() {
-  const b = $("#mode");
-  const enf = state.mode === "enforce";
-  b.textContent = (enf ? "● " : "○ ") + "mode: " + state.mode;
-  b.style.background = enf ? "var(--amber)" : "";
-  b.style.color = enf ? "#fff" : "";
-  b.style.borderColor = enf ? "var(--amber)" : "";
+  const b = $("#mode"); const enf = state.mode === "enforce";
+  b.replaceChildren(dotEl(enf ? "var(--amber)" : "var(--muted)"),
+    document.createTextNode("mode: " + t(enf ? "mode.enforce" : "mode.observe")));
+  b.classList.toggle("enf", enf);
 }
-function renderConn() { const c = $("#conn"); c.textContent = state.connected ? "● 연결됨" : "● 끊김"; c.className = "badge " + (state.connected ? "ok" : "bad"); }
-function statusColor(s) { return ({running:"var(--blue)",completed:"var(--green)",failed:"var(--red)",aborted:"#888"})[s] || "#888"; }
+function renderConn() { const c = $("#conn");
+  c.replaceChildren(dotEl(state.connected ? "var(--green)" : "var(--red)"),
+    document.createTextNode(t(state.connected ? "conn.connected" : "conn.disconnected")));
+  c.className = "badge " + (state.connected ? "ok" : "bad"); }
+function statusColor(s) { return ({running:"var(--accent)",completed:"var(--green)",failed:"var(--red)",aborted:"var(--muted)",pending_approval:"var(--amber)"})[s] || "var(--muted)"; }
+// Apply the current language to all static chrome, then re-render the dynamic views (which use t()).
+function applyLang(){
+  document.documentElement.lang = LANG;
+  $("#sessTitle").textContent = t("pane.sessions");
+  $("#detailTitle").textContent = t("pane.detail");
+  $("#harness").replaceChildren(ico("gear"), document.createTextNode(t("footer.harness"))); $("#harness").title = t("footer.harness.tip");
+  $("#mode").title = t("mode.toggle");
+  $("#lang").replaceChildren(ico("lang"), document.createTextNode(LANG === "ko" ? "EN" : "한")); $("#lang").title = t("lang.switch");
+  $("#scopeTitle").textContent = t("scope.title"); $("#scopeSub").textContent = t("scope.subtitle");
+  $("#scopeAdd").textContent = "+ " + t("common.add"); $("#scopeSave").textContent = t("common.save");
+  $("#scopeClose").title = t("common.close"); $("#harnessClose").title = t("common.close");
+  $("#leftResize").title = $("#rightResize").title = t("pane.resize.drag");
+  $("#leftResize").setAttribute("aria-label", t("pane.sessions.resize"));
+  $("#rightResize").setAttribute("aria-label", t("pane.detail.resize"));
+  applyLayout(); renderMode(); renderConn(); renderSidebar(); renderCanvas(); renderPending();
+  if (!state.sel) { const db = $("#detail-body"); if (db) db.replaceChildren(el("p","muted", t("detail.empty"))); }
+  if ($("#harnessModal").style.display !== "none" && _crit) renderHarness();
+}
 
 // Sidebar: grouped by PROJECT (folder). Each project is an accordion whose sessions stack beneath
 // it (like a Codex-style project → conversations list). A session expands into the user's requests
@@ -517,7 +999,7 @@ function renderSidebar() {
   const box = $("#sessions"); box.replaceChildren();
   // cwd-less subagent/tool sessions are excluded from tracking.
   const flows = Object.values(state.flows).filter(hasCwd).sort((a,b)=>(b.started_at||0)-(a.started_at||0));
-  if (!flows.length) { box.append(el("p","muted","아직 추적된 세션이 없습니다.")); return; }
+  if (!flows.length) { box.append(el("p","muted", t("sidebar.empty"))); return; }
   // Group flows by project folder, keeping each group's most-recent activity for ordering.
   const groups = new Map();
   for (const f of flows) {
@@ -538,14 +1020,14 @@ function renderProject(g) {
   const head = el("div","projhead");
   // Row 1: caret + folder + name (name gets the full width, no longer squeezed by the mode control).
   const top = el("div","projtop");
-  top.append(el("span","caret", open ? "▾" : "▸"), svgIcon(FOLDER_SVG));
+  top.append(chevron(), svgIcon(FOLDER_SVG));
   const name = el("span","pname", projName(g.cwd)); name.title = g.cwd || "";
   top.append(name);
   if (g.flows.some(f => f.status === "running")) { const d = el("span","dot"); d.style.background = statusColor("running"); top.append(d); }
   head.append(top);
   // Row 2: session count + compact mode pill.
   const meta = el("div","projmeta");
-  meta.append(el("span","cnt", g.flows.length + " 세션"), el("span","grow"), projModeControl(g.cwd));
+  meta.append(el("span","cnt", qty(g.flows.length, "unit.sessions")), el("span","grow"), projModeControl(g.cwd));
   head.append(meta);
   head.onclick = (ev) => { if (ev.target.closest(".modectl")) return; toggleProject(g.key); };
   wrap.append(head);
@@ -562,10 +1044,10 @@ function projModeControl(cwd) {
   const eff = ov || state.mode;                 // currently effective mode for this project
   const wrap = el("span","modectl");
   const sel = el("select","modesel " + (eff === "enforce" ? "enf" : "obs"));
-  [["", "전역"], ["observe", "observe"], ["enforce", "enforce"]].forEach(([v, label]) => {
+  [["", t("mode.global")], ["observe", "observe"], ["enforce", "enforce"]].forEach(([v, label]) => {
     const o = el("option", null, label); o.value = v; if ((ov || "") === v) o.selected = true; sel.append(o);
   });
-  sel.title = ov ? ("이 프로젝트 고정: " + ov) : ("전역 모드 따름 (" + state.mode + ")");
+  sel.title = ov ? (t("tip.projPinned") + ov) : (t("tip.projFollowsGlobal") + " (" + state.mode + ")");
   sel.onclick = (ev) => ev.stopPropagation();
   sel.onchange = (ev) => { ev.stopPropagation(); setProjectMode(cwd, sel.value || "global"); };
   wrap.append(sel);
@@ -592,14 +1074,14 @@ function renderSession(f) {
   const item = el("div","sessitem");
   const head = el("div","sesshead" + (state.selFlow===f.flow_id ? " cur" : ""));
   head.append(el("span","srctag " + (f.source==="codex" ? "codex" : "claude"), srcName(f)));
-  const sub = el("span","sname smeta", relTime(f.started_at) + " · " + f.status);
+  const sub = el("span","sname smeta", relTime(f.started_at) + " · " + statusLabel(f.status));
   sub.title = f.cwd || "";
   head.append(sub);
   const nturns = state.loaded.has(f.flow_id) ? turnTasks(f.flow_id).length : 0;
-  if (nturns) head.append(el("span","chip", nturns + "턴"));
+  if (nturns) head.append(el("span","chip", qty(nturns, "unit.turns")));
   const dot = el("span","dot"); dot.style.background = statusColor(f.status);
   head.append(dot);
-  const del = el("span","convdel"); del.innerHTML = TRASH_SVG; del.title = "이 대화 삭제";
+  const del = el("span","convdel"); del.innerHTML = TRASH_SVG; del.title = t("tip.deleteConv");
   del.onclick = (ev) => { ev.stopPropagation(); deleteConversation(f); };
   head.append(del);
   head.onclick = () => selectConversation(f.flow_id);
@@ -607,7 +1089,7 @@ function renderSession(f) {
   return item;
 }
 async function deleteConversation(f) {
-  if (!confirm("이 대화를 삭제할까요?\n" + projName(f.cwd) + " · " + srcName(f) + " · " + relTime(f.started_at))) return;
+  if (!confirm(t("confirm.deleteConv") + "\n" + projName(f.cwd) + " · " + srcName(f) + " · " + relTime(f.started_at))) return;
   const r = await api("/api/flows/" + encodeURIComponent(f.flow_id), { method:"DELETE" });
   if (!r.ok) return;
   // The WS 'delete' patch prunes state + re-renders; do it locally too for immediate feedback.
@@ -632,33 +1114,38 @@ async function selectConversation(flowId) {
 // request — is the unit, matching how Codex/Claude Code present a chat thread.
 function renderCanvas() {
   const c = $("#canvas"); c.replaceChildren();
-  if (!state.selFlow) { c.append(el("p","muted","왼쪽에서 대화를 선택하세요.")); return; }
-  const f = state.flows[state.selFlow]; if (!f) { c.append(el("p","muted","대화를 불러오는 중…")); return; }
+  if (!state.selFlow) {
+    const empty = Object.keys(state.flows).length === 0;
+    c.append(el("p","muted", t(empty ? "canvas.emptyNoSessions" : "canvas.selectConv")));
+    return;
+  }
+  const f = state.flows[state.selFlow]; if (!f) { c.append(el("p","muted", t("canvas.loadingConv"))); return; }
 
   const view = el("div","reqview");
   const head = el("div","reqhead");
   head.append(el("span","srctag " + (f.source==="codex" ? "codex" : "claude"), srcName(f)));
-  const proj = el("span","chip project","project:"+projectLabel(f)); proj.title = f.cwd || "cwd 미관측";
+  const proj = el("span","chip project","project:"+projectLabel(f)); proj.title = f.cwd || t("cwd.none");
   const turns = turnTasks(f.flow_id);
-  head.append(proj, el("span","chip",f.status),
-    el("span","chip",(f.total_tokens||0).toLocaleString()+" tok"), el("span","chip", turns.length + "턴"));
+  head.append(proj, el("span","chip",statusLabel(f.status)),
+    el("span","chip",(f.total_tokens||0).toLocaleString()+" tok"), el("span","chip", qty(turns.length, "unit.turns")));
   view.append(head);
 
-  // The harnesses apply to the whole conversation's project — shown once at the top.
-  view.append(renderServicePanel(f));   // (A) external scaffolding (service harness)
-  view.append(renderHarnessPanel(f));   // (B) our 3-Layer harness
+  // The harnesses apply to the whole conversation's project — shown once at the top, side by side.
+  const ctx = el("div","hpanels");
+  ctx.append(renderServicePanel(f), renderHarnessPanel(f));   // (A) service scaffolding · (B) our 3-Layer
+  view.append(ctx);
 
   const th = el("div","trajhead");
-  th.append(el("h2",null,"대화 내역 — 턴(요청)별 동작"));
-  const modeBtn = el("button","trajbtn", state.trajMode==="time" ? "⏱ 시간순" : "🗂 카테고리");
-  modeBtn.title = "보기 전환: 시간순 ↔ 카테고리별";
+  th.append(el("h2",null, t("traj.heading")));
+  const modeBtn = el("button","trajbtn", t(state.trajMode==="time" ? "traj.time" : "traj.category"));
+  modeBtn.title = t("traj.toggleTip");
   modeBtn.onclick = () => { state.trajMode = state.trajMode==="time" ? "category" : "time"; renderCanvas(); };
   th.append(el("span","grow"), modeBtn);
   view.append(th);
 
   // Each turn = one user request in the thread, NEWEST on top; only the open ones render their
   // (potentially long) trajectory.
-  if (!turns.length) view.append(el("p","muted","아직 동작이 없습니다."));
+  if (!turns.length) view.append(el("p","muted", t("traj.noActions")));
   else [...turns].reverse().forEach(t => view.append(renderTurnSection(f, t)));
   c.append(view);
 }
@@ -666,11 +1153,11 @@ function renderTurnSection(f, t) {
   const open = state.expandedTurns.has(t.task_id);
   const sec = el("div","turnsec" + (open ? " open" : ""));
   const head = el("div","turnhead");
-  head.append(el("span","caret", open ? "▾" : "▸"));
+  head.append(chevron());
   const ask = el("span","turnask", requestLabel(t)); ask.title = requestLabel(t);
   head.append(ask);
-  const n = stepCountForTask(t.task_id); if (n) head.append(el("span","chip", n + "단계"));
-  if (t.retry_count > 0) head.append(el("span","chip","⟳"+t.retry_count));
+  const n = stepCountForTask(t.task_id); if (n) head.append(el("span","chip", qty(n, "unit.steps")));
+  if (t.retry_count > 0) { const rc = el("span","chip"); rc.append(ico("retry"), document.createTextNode(" "+t.retry_count)); head.append(rc); }
   const dot = el("span","dot"); dot.style.background = statusColor(t.status); head.append(dot);
   head.onclick = () => toggleTurn(t.task_id);
   sec.append(head);
@@ -694,8 +1181,8 @@ function renderAskBlock(t) {
   const expanded = state.expandedAsks.has(t.task_id);
   const block = el("div","askblock" + (expanded ? " open" : ""));
   const head = el("div","askhead");
-  head.append(el("span","caret", expanded ? "▾" : "▸"), el("span","asklabel","요청"),
-    el("span","grow"), el("span","muted askhint", expanded ? "접기" : "전체 보기"));
+  head.append(chevron(), el("span","asklabel", tr("ask.label")),
+    el("span","grow"), el("span","muted askhint", tr(expanded ? "ask.collapse" : "ask.expandAll")));
   head.onclick = (ev) => { ev.stopPropagation(); toggleAsk(t.task_id); };
   block.append(head);
   const txt = el("div","asktext" + (expanded ? "" : " clamp")); txt.textContent = req;
@@ -709,56 +1196,58 @@ function toggleAsk(taskId) {
 }
 
 function renderHarnessPanel(f) {
-  const p = el("div","harnesspanel");
+  const p = el("div","harnesspanel layer");
   const head = el("div","hp-head");
-  const title = el("span","hp-title","⚙ 3-Layer 하네스 — 클릭해 적용 규칙 보기");
-  title.style.cursor = "pointer";
-  head.append(title,
+  const toggle = el("button","iconbtn"); setChev(toggle, 0); toggle.title = t("hp.detailTip");
+  head.append(ico("shield","hp-ico"), el("span","hp-name", t("hp.title")),
     el("span","chip scope","harness:"+harnessName(f)),
     el("span","chip","mode:"+harnessMode(f)));
-  if (f.harness) {
-    head.append(el("span","chip","L1 "+f.harness.invariants_count),
-      el("span","chip","L2 "+f.harness.domain_criteria_count));
-    const l3 = l3Summary(f.harness.layer3); if (l3) head.append(el("span","chip",l3));
-    // Repo-committed governance (.harness-lens/policy.yaml) is in effect for this project.
-    if (f.harness.repo_policy_name) {
-      const rc = el("span","chip repo", "📦 repo 정책: " + f.harness.repo_policy_name
-        + " (L1 " + (f.harness.repo_invariants_count||0) + "·L2 " + (f.harness.repo_domain_criteria_count||0) + ")");
-      rc.title = "이 repo 의 .harness-lens/policy.yaml — git 으로 팀과 공유되는 거버넌스 (PR 로 편집)";
-      head.append(rc);
-    }
-  }
-  // L3 threshold breach (run-level; L3 never blocks a step, so surface WHICH limit was crossed).
+  if (f.harness) head.append(el("span","chip","L1 "+f.harness.invariants_count+" · L2 "+f.harness.domain_criteria_count));
+  // L3 breach surfaces in the header (as an alert) even while the panel is collapsed.
   const l3s = f.l3_status;
   if (l3s && l3s.breached) {
-    const bits = [];
-    if (l3s.failures && l3s.failures.breached) bits.push("실패 "+l3s.failures.value+"/"+l3s.failures.threshold);
-    if (l3s.slow && l3s.slow.breached) bits.push("지연 "+l3s.slow.value+"건(>"+l3s.slow.threshold+"x)");
-    if (l3s.low_quality && l3s.low_quality.breached) bits.push("저품질 "+l3s.low_quality.value+"건(<"+l3s.low_quality.threshold+")");
-    const c = el("span","chip dchip deny","⚠ L3 임계 초과: "+bits.join(" · "));
-    c.title = "Layer 3 한계선 초과 — 차단은 아니고 경보/자동진화 트리거 대상";
-    head.append(c);
+    const c = el("span","chip dchip deny"); c.append(ico("alert"), document.createTextNode(" " + t("hp.l3Breach")));
+    c.title = t("hp.l3Breach.tip"); head.append(c);
   }
-  const detailBtn = el("button","iconbtn","▸"); detailBtn.title = "적용 규칙 자세히 보기";
-  const editBtn = el("button",null,"이 프로젝트 하네스 편집");
-  editBtn.onclick = (ev) => { ev.stopPropagation(); openHarness(f.cwd || "__global__"); };
-  const full = el("button",null,"전역 기본");
-  full.onclick = (ev) => { ev.stopPropagation(); openHarness("__global__"); };
-  head.append(el("span","grow"), detailBtn, editBtn, full);
+  head.append(el("span","grow"), toggle);
   p.append(head);
   const body = el("div","hp-body"); body.style.display = "none"; p.append(body);
-  const toggle = () => {
+  let built = false;
+  head.onclick = () => {
     const open = body.style.display !== "none";
     body.style.display = open ? "none" : "";
-    detailBtn.textContent = open ? "▸" : "▾";
-    if (!open) loadEffectiveInto(body, f);
+    setChev(toggle, open ? 0 : 90);
+    if (!open && !built) { buildHarnessBody(body, f); built = true; }
   };
-  detailBtn.onclick = (ev) => { ev.stopPropagation(); toggle(); };
-  title.onclick = toggle;
   return p;
 }
+// Expanded 3-Layer body: extra provenance chips, edit actions, then the effective rules.
+function buildHarnessBody(body, f) {
+  const chips = el("div","hp-chips");
+  if (f.harness) {
+    const l3 = l3Summary(f.harness.layer3); if (l3) chips.append(el("span","chip", l3));
+    if (f.harness.generated_detectors_count) {
+      const gc = el("span","chip", t("hp.genDetector") + " " + f.harness.generated_detectors_count);
+      gc.title = t("hp.genDetector.tip"); chips.append(gc);
+    }
+    if (f.harness.repo_policy_name) {
+      const rc = el("span","chip repo");
+      rc.append(ico("package"), document.createTextNode(" " + t("hp.repoPolicy") + ": " + f.harness.repo_policy_name
+        + " (L1 " + (f.harness.repo_invariants_count||0) + "·L2 " + (f.harness.repo_domain_criteria_count||0) + ")"));
+      rc.title = t("hp.repoPolicy.tip"); chips.append(rc);
+    }
+  }
+  if (chips.childNodes.length) body.append(chips);
+  const acts = el("div","hp-acts");
+  const editBtn = el("button",null, t("hp.editProject"));
+  editBtn.onclick = (ev) => { ev.stopPropagation(); openHarness(f.cwd || "__global__"); };
+  const full = el("button",null, t("hp.globalBase"));
+  full.onclick = (ev) => { ev.stopPropagation(); openHarness("__global__"); };
+  acts.append(editBtn, full); body.append(acts);
+  const rules = el("div"); body.append(rules); loadEffectiveInto(rules, f);
+}
 async function loadEffectiveInto(body, f) {
-  body.replaceChildren(el("p","muted","불러오는 중…"));
+  body.replaceChildren(el("p","muted", t("common.loading")));
   let e = state.effective[f.flow_id];
   if (!e) {
     e = await (await api("/api/criteria/effective?flow_id="+encodeURIComponent(f.flow_id))).json();
@@ -766,8 +1255,8 @@ async function loadEffectiveInto(body, f) {
   }
   body.replaceChildren();
   const sc = e.scope || null, rp = e.repo_policy || null;
-  body.append(el("div","muted", "적용 하네스: " + (e.scope_name||"global") + " · mode: " + (e.mode||"?")
-    + (rp ? "  · 📦 repo 정책: " + (rp.name||"repo") : "") + (sc ? "  · 이 프로젝트 규칙" : "")));
+  body.append(el("div","muted", t("hp.effective") + ": " + (e.scope_name||"global") + " · mode: " + (e.mode||"?")
+    + (rp ? "  · " + t("hp.repoPolicy") + ": " + (rp.name||"repo") : "") + (sc ? "  · " + t("hp.projRules") : "")));
   // Three-way provenance: a rule comes from the global base, the repo-committed governance policy,
   // or this developer's personal project scope.
   const addInv = new Set((sc && sc.add_invariants) || []);
@@ -782,11 +1271,11 @@ async function loadEffectiveInto(body, f) {
     .filter(st => st.flow_id === f.flow_id && st.decision_layer === layer && st.decision_criterion)
     .map(st => st.decision_criterion));
   const firedInv = firedIn(1), firedDc = firedIn(2);
-  const PROV = { repo:["repo","📦 repo"], proj:["proj","이 프로젝트"], glob:["glob","전역"] };
+  const PROV = { repo:["repo", t("prov.repo")], proj:["proj", t("prov.proj")], glob:["glob", t("prov.glob")] };
   const tag = (src) => { const m = PROV[src]; return el("span", "prov " + m[0], m[1]); };
   const row = (src, text, hit) => {
     const it = el("div","it" + (hit ? " fired warn" : "")); it.append(tag(src), document.createTextNode(" " + text));
-    if (hit) it.append(el("span","firedtag", " ⏸ 이 세션에서 걸림"));
+    if (hit) { const ft = el("span","firedtag"); ft.append(dotEl("var(--amber)"), document.createTextNode(" " + t("hp.firedThisSession"))); it.append(ft); }
     return it;
   };
   const invSrc = (r) => repoInv.has(r) ? "repo" : (addInv.has(r) ? "proj" : "glob");
@@ -794,17 +1283,17 @@ async function loadEffectiveInto(body, f) {
     : ((addDc.has(dc.id)||addDc.has(dc.description)) ? "proj" : "glob");
   const l3Src = (k) => repoL3.has(k) ? "repo" : (l3over.has(k) ? "proj" : "glob");
 
-  const l1 = el("div"); l1.append(el("h4",null,"Layer 1 — 절대 규칙 (안전·위반 금지)"));
+  const l1 = el("div"); l1.append(el("h4",null, t("layer1.full")));
   if ((e.invariants||[]).length) e.invariants.forEach(r => l1.append(row(invSrc(r), r, firedInv.has(r))));
-  else l1.append(el("div","it muted","(없음)"));
-  const l2 = el("div"); l2.append(el("h4",null,"Layer 2 — 행동 기준 (매 단계 품질 심사)"));
+  else l1.append(el("div","it muted", t("common.none")));
+  const l2 = el("div"); l2.append(el("h4",null, t("layer2.full")));
   if ((e.domain_criteria||[]).length) e.domain_criteria.forEach(dc =>
     l2.append(row(dcSrc(dc),
       (dc.description||dc.id||"") + (dc.weight!=null ? " (w"+dc.weight+")" : ""), firedDc.has(dc.id))));
-  else l2.append(el("div","it muted","(없음)"));
-  const l3 = el("div"); l3.append(el("h4",null,"Layer 3 — 품질 한계선 (자동 임계값)"));
+  else l2.append(el("div","it muted", t("common.none")));
+  const l3 = el("div"); l3.append(el("h4",null, t("layer3.full")));
   Object.entries(e.layer3||{}).forEach(([k,v]) => { const s = l3Src(k);
-    l3.append(row(s, k + ": " + v + (s !== "glob" ? "  (" + PROV[s][1] + " 오버라이드)" : ""))); });
+    l3.append(row(s, k + ": " + v + (s !== "glob" ? "  (" + PROV[s][1] + " " + t("hp.override") + ")" : ""))); });
   body.append(l1, l2, l3);
 }
 
@@ -813,27 +1302,26 @@ async function loadEffectiveInto(body, f) {
 function renderServicePanel(f) {
   const p = el("div","harnesspanel service");
   const head = el("div","hp-head");
-  head.append(el("span",null,"🧩 서비스 하네스 (스캐폴딩)"),
-    el("span","chip project","project:"+projectLabel(f)),
+  const toggle = el("button","iconbtn"); setChev(toggle, 0); toggle.title = t("common.toggle");
+  head.append(ico("puzzle","hp-ico"), el("span","hp-name", t("svc.title")),
     el("span","chip","platform:"+srcName(f)));
-  const toggle = el("button","iconbtn","▾"); toggle.title = "접기/펼치기";
   head.append(el("span","grow"), toggle);
   p.append(head);
-  const body = el("div","hp-body"); p.append(body);
-  toggle.onclick = () => {
+  const body = el("div","hp-body"); body.style.display = "none"; p.append(body);
+  let built = false;
+  head.onclick = () => {
     const open = body.style.display !== "none";
     body.style.display = open ? "none" : "";
-    toggle.textContent = open ? "▸" : "▾";
-    if (!open) loadServiceInto(body, f);
+    setChev(toggle, open ? 0 : 90);
+    if (!open && !built) { loadServiceInto(body, f); built = true; }
   };
-  loadServiceInto(body, f);  // shown expanded by default — it's the answer to "what applied"
   return p;
 }
 async function loadServiceInto(body, f) {
   const id = f.flow_id;
   let e = state.serviceHarness[id];
   if (e === undefined) {
-    body.replaceChildren(el("p","muted","스캐폴딩 스캔 중…"));
+    body.replaceChildren(el("p","muted", t("svc.scanning")));
     const pr = api("/api/flows/"+encodeURIComponent(id)+"/service_harness").then(r=>r.json());
     state.serviceHarness[id] = pr;
     e = await pr; state.serviceHarness[id] = e;
@@ -842,15 +1330,16 @@ async function loadServiceInto(body, f) {
   }
   body.replaceChildren();
   const comps = (e && e.components) || [];
-  if (!comps.length) { body.append(el("p","muted","감지된 서비스 스캐폴딩이 없습니다.")); return; }
+  if (!comps.length) { body.append(el("p","muted", t("svc.none"))); return; }
   const groups = {};
   comps.forEach(c => { (groups[c.scope] = groups[c.scope] || []).push(c); });
   Object.entries(groups).forEach(([scope, items]) => {
     const g = el("div"); g.append(el("h4",null, scope));
     items.forEach(c => {
       const row = el("div","it"); row.title = c.path;
-      row.append(el("span","chip uchip", c.kind), document.createTextNode(
-        " " + baseName(c.path) + (c.detail ? " — " + c.detail : "") + (c.editable ? "  ✎AHE" : "")));
+      const ch = el("span","chip uchip"); ch.append(ico(USAGE_ICON[c.kind]||"tool"), document.createTextNode(" " + c.kind));
+      row.append(ch, document.createTextNode(
+        " " + baseName(c.path) + (c.detail ? " — " + c.detail : "") + (c.editable ? "  · " + t("svc.aheEditable") : "")));
       g.append(row);
     });
     body.append(g);
@@ -862,7 +1351,7 @@ function renderTrajectory(t) {
   // Chronological: ascending seq → earliest at top, latest at the bottom.
   const steps = Object.values(state.steps).filter(s => s.task_id===t.task_id).sort((a,b)=>a.seq-b.seq);
   const kids = Object.values(state.tasks).filter(x => x.parent_task_id===t.task_id).sort((a,b)=>a.seq-b.seq);
-  if (!steps.length && !kids.length) { wrap.append(el("p","muted","아직 동작이 없습니다.")); return wrap; }
+  if (!steps.length && !kids.length) { wrap.append(el("p","muted", tr("traj.noActions"))); return wrap; }
   if (state.trajMode === "time") {
     // Pure chronological — one list, earliest top → latest bottom (no regrouping).
     const chart = el("div","flowchart");
@@ -875,7 +1364,7 @@ function renderTrajectory(t) {
     steps.forEach(s => { const c = stepCategory(s); if (!groups.has(c)) groups.set(c, []); groups.get(c).push(s); });
     for (const [cat, list] of groups) {
       const sec = el("div","catsec");
-      sec.append(el("div","cathead", (CAT_LABEL[cat]||cat) + "  ·  " + list.length));
+      sec.append(catHead(cat, list.length));
       const chart = el("div","flowchart");
       list.forEach(s => chart.append(renderStep(s)));
       sec.append(chart); wrap.append(sec);
@@ -883,7 +1372,7 @@ function renderTrajectory(t) {
   }
   if (kids.length) {
     const sec = el("div","catsec");
-    sec.append(el("div","cathead", CAT_LABEL.agent + "  ·  " + kids.length));
+    sec.append(catHead("agent", kids.length));
     const chart = el("div","flowchart");
     kids.forEach(x => chart.append(renderTask(x)));
     sec.append(chart); wrap.append(sec);
@@ -896,11 +1385,13 @@ function renderTask(t) {
   const hdr = el("div","taskhdr");
   const isSub = t.kind==="subagent";
   const req = isSub ? "" : cleanTitle(t.title);
-  const label = el("span",null,isSub ? ("🤖 "+(t.agent_name||"subagent")) : ((req||"요청 미관측").slice(0,46)));
+  const label = el("span");
+  if (isSub) label.append(ico("cpu"), document.createTextNode(" " + (t.agent_name||"subagent")));
+  else label.textContent = (req||tr("req.none")).slice(0,46);
   if (req) label.title = req;
   hdr.append(label);
-  if (t.retry_count>0) hdr.append(el("span","chip","⟳"+t.retry_count));
-  hdr.append(el("span","chip muted",t.status));
+  if (t.retry_count>0) { const rc = el("span","chip"); rc.append(ico("retry"), document.createTextNode(" "+t.retry_count)); hdr.append(rc); }
+  hdr.append(el("span","chip muted", statusLabel(t.status)));
   wrap.append(hdr);
   if (req) { const p = el("div","prompt"); p.textContent = req; wrap.append(p); }
   const kids = el("div","children");
@@ -915,7 +1406,7 @@ function renderStep(s) {
   const n = el("div","step st-"+s.status + (state.sel===s.step_id?" sel":""));
   // Main row: tool + the actual command/argument inline, so Bash steps are scannable at a glance.
   const main = el("div","step-main");
-  main.append(el("span","tname",toolIcon(s.tool_name)+" "+toolLabel(s.tool_name)));
+  main.append(toolNameEl(s.tool_name));
   const sum = stepSummary(s);
   if (sum) { const sp = el("span","cmdsum", sum); sp.title = sum; main.append(sp); }
   if (s.duration_ms!=null) main.append(el("span","chip",s.duration_ms+"ms"));
@@ -927,7 +1418,7 @@ function renderStep(s) {
   ["L1","L2","L3"].forEach((tag, idx) => {
     const acted = s.decision_layer === (idx + 1);
     const b = el("span","lyr " + tag.toLowerCase() + (acted ? (" acted " + (s.decision==="deny" ? "bad" : "warn")) : ""), tag);
-    b.title = acted && s.decision_reason ? (s.decision + ": " + s.decision_reason) : (tag + " 규칙·판정 보기");
+    b.title = acted && s.decision_reason ? (s.decision + ": " + s.decision_reason) : (tag + " " + t("lyr.tip"));
     b.onclick = (ev) => { ev.stopPropagation(); state.sel = s.step_id; showDetail(s.step_id, tag); renderCanvas(); };
     lb.append(b);
   });
@@ -940,11 +1431,11 @@ function renderStep(s) {
   if (s.decision_layer != null && s.decision_reason) {
     const dec = s.decision;
     const cls = dec === "deny" ? "bad" : dec === "escalate" ? "warn" : "ok";
-    const icon = dec === "deny" ? "⛔" : dec === "escalate" ? "⏸" : "✅";
-    const verb = dec === "deny" ? "차단" : dec === "escalate" ? "승인대기" : "통과";
+    const dcolor = cls === "bad" ? "var(--red)" : cls === "warn" ? "var(--amber)" : "var(--green)";
+    const verb = t(dec === "deny" ? "verdict.deny" : dec === "escalate" ? "verdict.escalate" : "verdict.pass");
     const v = el("div","step-verdict " + cls);
-    v.append(el("span","vmark", icon + " L" + s.decision_layer + " " + verb + " — "),
-      document.createTextNode(s.decision_reason));
+    const vm = el("span","vmark"); vm.append(dotEl(dcolor), document.createTextNode(" L" + s.decision_layer + " " + verb + " — "));
+    v.append(vm, document.createTextNode(s.decision_reason));
     v.title = s.decision_reason;
     v.onclick = (ev) => { ev.stopPropagation(); state.sel = s.step_id; showDetail(s.step_id, "L" + s.decision_layer); renderCanvas(); };
     n.append(v);
@@ -962,18 +1453,20 @@ function renderStep(s) {
 }
 function renderApprovalInline(s) {
   const appr = Object.values(state.approvals).find(a => a.step_id===s.step_id && !a.resolved_at);
-  if (!appr) return el("span","chip","대기");
-  const card = el("span","chip"); card.textContent = "승인대기"; return card;
+  if (!appr) return el("span","chip", t("appr.waiting"));
+  const card = el("span","chip"); card.textContent = t("status.pending_approval"); return card;
 }
 
 // ---- detail panel ----
 function dcard(title) { const c = el("div","dcard"); if (title) c.append(el("div","dcard-h", title)); return c; }
-function collapsible(label, text, open) {
-  const c = el("div","dcard");
-  const h = el("div","dcard-h clickable", (open ? "▾ " : "▸ ") + label);
+function collapsible(label, text, open, cls) {
+  const c = el("div","dcard" + (cls ? " " + cls : ""));
+  const h = el("div","dcard-h clickable");
+  const cv = chevron(); if (open) cv.style.transform = "rotate(90deg)";
+  h.append(cv, document.createTextNode(label));
   const pre = el("pre"); pre.textContent = (typeof text === "string" ? text : JSON.stringify(text, null, 2));
   pre.style.display = open ? "" : "none";
-  h.onclick = () => { const o = pre.style.display !== "none"; pre.style.display = o ? "none" : ""; h.textContent = (o ? "▸ " : "▾ ") + label; };
+  h.onclick = () => { const o = pre.style.display !== "none"; pre.style.display = o ? "none" : ""; cv.style.transform = o ? "" : "rotate(90deg)"; };
   c.append(h, pre); return c;
 }
 function layerRow(tag, name, s, rules, kind, focus) {
@@ -983,27 +1476,28 @@ function layerRow(tag, name, s, rules, kind, focus) {
   const head = el("div","lyrrow-h");
   head.append(el("span","lyr " + tag.toLowerCase() + (acted ? (" acted " + (s.decision==="deny"?"bad":"warn")) : ""), tag),
     el("span","lyrname", name));
-  let verdict = "통과 (위반 없음)", cls = "ok";
+  let verdict = t("verdict.passNoViol"), cls = "ok";
   if (acted) { verdict = (s.decision||"") + (s.decision_reason ? " — " + s.decision_reason : ""); cls = s.decision==="deny" ? "bad" : "warn"; }
-  else if (kind === "l3") { verdict = "런 전체 모니터링 (개별 차단 아님)"; cls = "muted"; }
-  else if (kind === "dc") { verdict = "구조 검사 통과 · 자연어 기준은 비동기 Judge 채점"; cls = "ok"; }
+  else if (kind === "l3") { verdict = t("verdict.l3monitor"); cls = "muted"; }
+  else if (kind === "dc") { verdict = t("verdict.dcStruct"); cls = "ok"; }
   head.append(el("span","grow"), el("span","verdict " + cls, verdict));
   row.append(head);
   const ul = el("div","lyrrules");
   // Normalise to {text, id}; mark the one rule that actually fired so it stands out among many.
-  const items = (rules.length ? rules : [{text:"(없음)", id:null}]).map(r =>
+  const items = (rules.length ? rules : [{text:t("common.none"), id:null}]).map(r =>
     (typeof r === "string" ? {text:r, id:r} : r));
   items.forEach(r => {
     const hit = fired != null && r.id === fired;
     const it = el("div","it" + (hit ? " fired " + (s.decision==="deny"?"bad":"warn") : ""), "• " + r.text);
-    if (hit) it.append(el("span","firedtag", s.decision==="deny" ? " ⛔ 걸림" : " ⏸ 걸림"));
+    if (hit) { const ft = el("span","firedtag"); ft.append(dotEl(s.decision==="deny"?"var(--red)":"var(--amber)"),
+      document.createTextNode(" " + t(s.decision==="deny"?"fired.deny":"fired.escalate"))); it.append(ft); }
     ul.append(it);
   });
   row.append(ul);
   return row;
 }
 async function showDetail(stepId, focusLayer) {
-  const body = $("#detail-body"); body.replaceChildren(el("p","muted","불러오는 중…"));
+  const body = $("#detail-body"); body.replaceChildren(el("p","muted", t("common.loading")));
   const s = await (await api("/api/steps/" + stepId)).json();
   const f = state.flows[s.flow_id];
   // The rules in force for this flow (cached) — so the L1/L2/L3 card can list them.
@@ -1016,17 +1510,17 @@ async function showDetail(stepId, focusLayer) {
 
   // Header: tool + command + status.
   const hd = el("div","dh");
-  hd.append(el("span","dh-tool", toolIcon(s.tool_name) + " " + toolLabel(s.tool_name)),
-    el("span","dh-status st-" + s.status, s.status));
+  const dt = el("span","dh-tool tname"); dt.append(ico(toolIconName(s.tool_name)), document.createTextNode(" " + toolLabel(s.tool_name)));
+  hd.append(dt, el("span","dh-status st-" + s.status, statusLabel(s.status)));
   if (s.duration_ms != null) hd.append(el("span","muted", s.duration_ms + "ms"));
   body.append(hd);
   const cmd = stepSummary(s);
   if (cmd) { const cb = el("div","dcmd"); cb.textContent = cmd; cb.title = cmd; body.append(cb); }
 
-  // 3-Layer evaluation card — L1/L2/L3 rules + this step's verdict.
+  // 3-Layer evaluation card — L1/L2/L3 rules + this step's verdict. Appended last so logs stay first.
   const mode = f ? harnessMode(f) : "?";
-  const card = dcard("🛡 3-Layer 평가  ·  " + (f ? harnessName(f) : "?") + " · " + mode
-    + (mode === "observe" ? " (기록만)" : " (차단/승인)"));
+  const card = dcard(t("detail.evalTitle") + "  ·  " + (f ? harnessName(f) : "?") + " · " + mode
+    + " (" + t(mode === "observe" ? "mode.observeNote" : "mode.enforceNote") + ")");
   // Pinpoint callout: when a rule fired, name WHICH one (id + full wording) up top, so among dozens
   // of L2 criteria the operator sees exactly the one that gated — without scanning the list.
   if (s.decision_layer != null && s.decision_criterion) {
@@ -1034,54 +1528,55 @@ async function showDetail(stepId, focusLayer) {
     const ruleText = dc2 ? (dc2.description || dc2.id) : s.decision_criterion;
     const dec = s.decision;
     const fc = el("div","firedcallout " + (dec==="deny" ? "bad" : "warn"));
-    fc.append(el("span","firedbadge", (dec==="deny"?"⛔ ":"⏸ ") + "L" + s.decision_layer + " 걸린 규칙"),
-      el("span","firedid", s.decision_criterion),
-      el("span","firedtext", ruleText));
+    const fb = el("span","firedbadge"); fb.append(dotEl(dec==="deny"?"var(--red)":"var(--amber)"),
+      document.createTextNode(" L" + s.decision_layer + " " + t("detail.firedRule")));
+    fc.append(fb, el("span","firedid", s.decision_criterion), el("span","firedtext", ruleText));
     card.append(fc);
   }
-  card.append(layerRow("L1", "절대 규칙", s, ((e && e.invariants) || []).map(r => ({text:r, id:r})), "inv", focusLayer));
-  card.append(layerRow("L2", "행동 기준", s, ((e && e.domain_criteria) || []).map(d => ({
+  card.append(layerRow("L1", t("layer1.short"), s, ((e && e.invariants) || []).map(r => ({text:r, id:r})), "inv", focusLayer));
+  card.append(layerRow("L2", t("layer2.short"), s, ((e && e.domain_criteria) || []).map(d => ({
     text: (d.description||d.id||"") + (d.weight!=null?" (w"+d.weight+")":""), id: d.id})), "dc", focusLayer));
-  card.append(layerRow("L3", "품질 한계선", s, e && e.layer3 ? Object.entries(e.layer3).map(([k,v]) => ({text:k + ": " + v, id:k})) : [], "l3", focusLayer));
-  body.append(card);
+  card.append(layerRow("L3", t("layer3.short"), s, e && e.layer3 ? Object.entries(e.layer3).map(([k,v]) => ({text:k + ": " + v, id:k})) : [], "l3", focusLayer));
 
   // Service harness exercised here — chips clickable → show the prompt.
-  const sh = dcard("🧩 서비스 하네스 (이 동작)");
+  const sh = dcard(t("detail.svcThisAction"));
   const ucwd = f ? f.cwd : null;
   if (s.harness_usage && s.harness_usage.length) {
     const box = el("div","hp-head"); s.harness_usage.forEach(u => box.append(usageChip(u, ucwd))); sh.append(box);
-    sh.append(el("div","muted","칩 클릭 → 실제 프롬프트"));
-  } else { sh.append(el("div","muted","감지된 스캐폴딩 없음 (일반 셸/툴 동작)")); }
+    sh.append(el("div","muted", t("detail.chipClickPrompt")));
+  } else { sh.append(el("div","muted", t("detail.noScaffold"))); }
   body.append(sh);
 
   // Input / output / judge — collapsed by default to keep the panel clean.
-  if (s.tool_input) body.append(collapsible("입력", s.tool_input, false));
-  if (s.tool_output) body.append(collapsible("출력", s.tool_output, false));
-  if (s.judge_reason) body.append(collapsible("Judge", s.judge_reason, false));
+  if (s.tool_input) body.append(collapsible(t("common.input"), s.tool_input, false, "dlog"));
+  if (s.tool_output) body.append(collapsible(t("common.output"), s.tool_output, false, "dlog"));
+  if (s.judge_reason) body.append(collapsible("Judge", s.judge_reason, false, "dlog"));
   const appr = Object.values(state.approvals).find(a => a.step_id === stepId && !a.resolved_at);
   if (appr) body.append(approvalCard(appr, s));
+  body.append(card);
+  if (focusLayer) requestAnimationFrame(() => card.scrollIntoView({ block:"start" }));
 }
 function field(label, text) { const d = el("div"); d.append(el("h2",null,label)); const p = el("pre"); p.textContent = typeof text==="string"?text:JSON.stringify(text,null,2); d.append(p); return d; }
 
 // Show a service-harness component's actual prompt (the skill/instruction/rule file) in the detail pane.
 async function showComponent(kind, name, cwd) {
-  const body = $("#detail-body"); body.replaceChildren(el("p","muted","불러오는 중…"));
+  const body = $("#detail-body"); body.replaceChildren(el("p","muted", t("common.loading")));
   const q = "?kind=" + encodeURIComponent(kind) + "&name=" + encodeURIComponent(name)
     + (cwd ? "&cwd=" + encodeURIComponent(cwd) : "");
   let c;
   try { c = await (await api("/api/harness/component" + q)).json(); }
-  catch (e) { c = { found: false, note: "불러오기 실패" }; }
+  catch (e) { c = { found: false, note: t("common.loadFail") }; }
   body.replaceChildren();
-  const _hd = el("div"); _hd.append(el("b",null, (USAGE_ICON[kind]||"•") + " " + name)); body.append(_hd);
-  body.append(el("div","muted", "서비스 하네스 · " + kind + (c.path ? " · " + c.path : "")));
+  const _hd = el("div"); const hb = el("b"); hb.append(ico(USAGE_ICON[kind]||"tool"), document.createTextNode(" " + name)); _hd.append(hb); body.append(_hd);
+  body.append(el("div","muted", t("detail.svcPrefix") + " · " + kind + (c.path ? " · " + c.path : "")));
   if (c.found && c.content) { const pre = el("pre"); pre.style.maxHeight="70vh"; pre.textContent = c.content; body.append(pre); }
-  else body.append(el("p","muted", c.note || "프롬프트 내용을 찾지 못했습니다."));
+  else body.append(el("p","muted", c.note || t("detail.noPrompt")));
 }
 
 // ---- approvals ----
 function approvalCard(appr, step) {
   const card = el("div","appr");
-  card.append(el("div",null,"⚠ 승인 대기 — " + (appr.reason||"")));
+  const ahdr = el("div"); ahdr.append(ico("alert"), document.createTextNode(" " + t("appr.waitingFor") + (appr.reason||""))); card.append(ahdr);
   const bar = el("div","bar"); const fill = el("i"); bar.append(fill); card.append(bar);
   if (appr.timeout_at) {
     const total = Math.max(1, appr.timeout_at - (appr._t0 || (appr._t0 = Date.now()/1000)));
@@ -1090,9 +1585,9 @@ function approvalCard(appr, step) {
     const iv = setInterval(tick, 200); tick();
   }
   const row = el("div","row");
-  const yes = el("button",null,"승인"); const no = el("button",null,"거부");
+  const yes = el("button",null, t("appr.approve")); const no = el("button",null, t("appr.deny"));
   yes.disabled = no.disabled = !state.connected;  // never resolve over a dead socket
-  const reason = el("input"); reason.type = "text"; reason.placeholder = "거부 사유(선택)";
+  const reason = el("input"); reason.type = "text"; reason.placeholder = t("appr.denyReason");
   yes.onclick = () => resolveApproval(appr.approval_id, "approved");
   no.onclick = () => resolveApproval(appr.approval_id, "denied", reason.value);
   row.append(yes, no); card.append(row, reason);
@@ -1107,7 +1602,7 @@ function renderPending() {
   const open = Object.values(state.approvals).filter(a => !a.resolved_at);
   const b = $("#pending");
   if (!open.length) { b.style.display = "none"; return; }
-  b.style.display = ""; b.className = "badge alert"; b.textContent = "승인 대기 " + open.length;
+  b.style.display = ""; b.className = "badge alert"; b.textContent = t("appr.pendingBadge") + open.length;
   b.onclick = async () => {
     const first = open[0]; if (!first) return;
     state.sel = first.step_id; showDetail(first.step_id);
@@ -1152,7 +1647,7 @@ function scopeDcRow(dc) {
   const r = el("div","scopedcrow");
   r.dataset.prompt = dc.judge_prompt || "";
   const id = el("input"); id.placeholder="id"; id.value=dc.id||""; id.dataset.dc="id";
-  const desc = el("input"); desc.placeholder="추가 Layer-2 기준"; desc.value=dc.description||""; desc.dataset.dc="description";
+  const desc = el("input"); desc.placeholder=t("scope.addL2Placeholder"); desc.value=dc.description||""; desc.dataset.dc="description";
   const w = el("input"); w.type="number"; w.step="any"; w.placeholder="weight"; w.value=dc.weight!=null?dc.weight:1; w.dataset.dc="weight";
   r.append(id, desc, w, delBtn(() => r.remove()));
   return r;
@@ -1161,18 +1656,18 @@ function scopeRow(s) {
   s = s || { name:"", match:{}, mode:"", layer3:{}, add_invariants:[], add_domain_criteria:[] };
   const row = el("div","scoperow");
   const l1 = el("div","line");
-  const nm = el("input"); nm.className="nm"; nm.placeholder="이름"; nm.value = s.name||""; nm.dataset.f="name";
+  const nm = el("input"); nm.className="nm"; nm.placeholder=t("scope.name"); nm.value = s.name||""; nm.dataset.f="name";
   const mt = el("select"); mt.dataset.f="matchType";
-  mt.append(opt("cwd_prefix","cwd 경로"), opt("session_id","세션 ID"));
+  mt.append(opt("cwd_prefix",t("scope.matchCwd")), opt("session_id",t("scope.matchSession")));
   mt.value = (s.match && s.match.session_id) ? "session_id" : "cwd_prefix";
   const mv = el("input"); mv.className="mv"; mv.dataset.f="matchValue";
-  mv.placeholder = "/path/to/project 또는 세션 ID";
+  mv.placeholder = t("scope.matchPlaceholder");
   mv.value = (s.match && (s.match.cwd_prefix || s.match.session_id)) || "";
-  const del = el("button","del","삭제"); del.onclick = () => row.remove();
-  l1.append(nm, el("label",null,"match"), mt, mv, del);
+  const del = el("button","del",t("common.delete")); del.onclick = () => row.remove();
+  l1.append(nm, el("label",null,t("scope.matchLabel")), mt, mv, del);
   const l2 = el("div","line");
   const md = el("select"); md.dataset.f="mode";
-  md.append(opt("","mode: 상속"), opt("observe","observe"), opt("enforce","enforce"));
+  md.append(opt("",t("scope.modeInherit")), opt("observe","observe"), opt("enforce","enforce"));
   md.value = s.mode || "";
   l2.append(md, el("label",null,"L3"));
   for (const [key,lab] of L3KEYS) {
@@ -1181,17 +1676,17 @@ function scopeRow(s) {
     l2.append(i);
   }
   const l3 = el("div","line");
-  const ta = el("textarea"); ta.dataset.f="invariants"; ta.placeholder="추가 invariant (한 줄에 하나, 전역 규칙 위에 가산)";
+  const ta = el("textarea"); ta.dataset.f="invariants"; ta.placeholder=t("scope.addInvPlaceholder");
   ta.value = (s.add_invariants||[]).join("\n");
   l3.append(ta);
   const l4 = el("div","line");
-  l4.append(el("label",null,"추가 L2"));
-  const addDc = el("button",null,"+ 기준");
+  l4.append(el("label",null,t("scope.addL2")));
+  const addDc = el("button",null,t("scope.addCriterion"));
   const dcBox = el("div","scopedc");
   (s.add_domain_criteria||[]).forEach(dc => dcBox.append(scopeDcRow(dc)));
   addDc.onclick = () => dcBox.append(scopeDcRow());
   l4.append(addDc, dcBox);
-  row.append(l1, l2, el("div","muted","전역 base는 그대로 적용되고, 이 scope의 항목만 추가/오버라이드됩니다."), l3, l4);
+  row.append(l1, l2, el("div","muted",t("scope.note")), l3, l4);
   return row;
 }
 function collectScopes() {
@@ -1226,15 +1721,14 @@ async function openScopes(seedFlow=null) {
   scopes.forEach(s => { if (scopeMatchesFlow(s, seedFlow)) matched = true; list.append(scopeRow(s)); });
   if (seedFlow && seedFlow.cwd && !matched) {
     list.prepend(scopeRow(scopeDraftForFlow(seedFlow)));
-    $("#scopeMsg").textContent = "현재 Flow의 cwd로 새 프로젝트 하네스 초안을 추가했습니다.";
+    $("#scopeMsg").textContent = t("scope.msgDraft");
   } else if (seedFlow) {
-    $("#scopeMsg").textContent = "현재 Flow에 매칭되는 프로젝트 하네스가 목록에 있습니다.";
+    $("#scopeMsg").textContent = t("scope.msgMatched");
   } else {
     $("#scopeMsg").textContent = "";
   }
   $("#scopeModal").style.display = "flex";
 }
-$("#scopes").onclick = () => openScopes();
 $("#scopeClose").onclick = () => { $("#scopeModal").style.display = "none"; };
 $("#scopeModal").onclick = e => { if (e.target.id === "scopeModal") $("#scopeModal").style.display = "none"; };
 $("#scopeAdd").onclick = () => { $("#scopeList").append(scopeRow()); };
@@ -1242,17 +1736,17 @@ $("#scopeSave").onclick = async () => {
   const r = await api("/api/scopes", { method:"POST", body: JSON.stringify({ scopes: collectScopes() }) });
   if (r.ok) {
     const d = await r.json();
-    $("#scopeMsg").textContent = "저장됨 — " + d.scopes.length + "개 스코프 적용 (즉시 반영)";
+    $("#scopeMsg").textContent = t("scope.saved", d.scopes.length);
     _scopes = d.scopes || [];
     loadSnapshot();  // mode/harness chips may change for affected flows
     if ($("#harnessModal").style.display !== "none") renderHarness();
   } else {
-    $("#scopeMsg").textContent = "저장 실패 (" + r.status + ")";
+    $("#scopeMsg").textContent = t("scope.saveFail", r.status);
   }
 };
 
 // ---- harness (3-Layer base + project scopes) editor ----
-let _crit = null, _scopes = [], _l1open = false, _hpProject = "__global__";
+let _crit = null, _scopes = [], _l1open = false, _hpProject = "__global__", _compileReport = null;
 const L3HELP = {
   retry_threshold: "한 단계 재시도 허용 횟수 — 넘으면 경보",
   latency_multiplier: "평소 대비 몇 배 느리면 경보",
@@ -1266,14 +1760,136 @@ const collectL2 = () => [...document.querySelectorAll('#hl-l2 .hl-item')].map(r 
 const collectL3 = () => { const o={}; document.querySelectorAll('#hl-l3 input.w').forEach(i => { if (i.value!=="") o[i.dataset.k]=Number(i.value); }); return o; };
 
 async function saveLayer(layer, body) {
-  const m = $("#harnessMsg"); m.textContent = "저장 중…"; m.className = "muted";
+  const m = $("#harnessMsg"); m.textContent = t("common.saving"); m.className = "muted";
   const r = await api("/api/criteria/"+layer, { method:"POST", body: JSON.stringify(body) });
-  if (r.ok) { _crit = await r.json(); _l1open = false; renderHarness(); m.textContent = "저장됨 · 다음 단계부터 즉시 적용"; m.className = "ok"; }
-  else { const d = await r.json().catch(()=>({})); m.textContent = "거부: " + (d.detail || r.status); m.className = "warn"; }
+  if (r.ok) { _crit = await r.json(); _l1open = false; renderHarness(); m.textContent = t("harness.savedImmediate"); m.className = "ok"; }
+  else { const d = await r.json().catch(()=>({})); m.textContent = t("harness.rejected") + (d.detail || r.status); m.className = "warn"; }
 }
-function layerBox(id, title, help) { const b = el("div","hl-layer"); b.id = id; const h = el("h3",null,title); b.append(h, el("div","hl-help",help)); return b; }
+
+// Rule compiler — POST the current L1/L2 rules; the daemon classifies them (LLM via host CLI) into
+// deterministic detectors vs semantic (advisory). Read-only preview; it does not save anything.
+// Which rules to compile depends on the active editor: the global base, or a project's own additions.
+function compileRules() {
+  if (_hpProject === "__global__")
+    return { invariants: _l1open ? collectL1() : ((_crit && _crit.invariants) || []), domain_criteria: collectL2() };
+  return { invariants: collectProjInv(), domain_criteria: collectProjDc() };
+}
+async function runCompile(btn) {
+  const wrap = $("#hl-compileWrap"); if (!wrap) return;
+  const { invariants: inv, domain_criteria: dcs } = compileRules();
+  if (btn) { btn.disabled = true; btn.textContent = t("compile.classifying"); }
+  wrap.replaceChildren(el("div","hl-help", t("compile.calling")));
+  try {
+    const r = await api("/api/criteria/compile", { method:"POST",
+      body: JSON.stringify({ invariants: inv, domain_criteria: dcs }) });
+    const d = await r.json().catch(()=>({}));
+    if (!r.ok) { wrap.replaceChildren(el("div","warn", t("compile.fail") + (d.detail || r.status))); return; }
+    _compileReport = d;
+    renderCompile(wrap, d);
+  } catch (e) {
+    wrap.replaceChildren(el("div","warn", t("compile.error") + e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = t("compile.btn"); }
+  }
+}
+function compileTag(rule) {
+  if (rule.enforcement === "detector") return el("span","hl-tag det", t("compile.tag.det"));
+  if (rule.classification === "unknown") return el("span","hl-tag unk", t("compile.tag.unk"));
+  return el("span","hl-tag adv", t("compile.tag.adv"));
+}
+function renderCompile(wrap, data) {
+  wrap.replaceChildren();
+  const c = data.counts || {};
+  wrap.append(el("div","hl-help",
+    t("compile.summary", c.detector||0, c.advisory||0, c.total||0)
+    + (data.llm_used ? t("compile.llmUsed") : t("compile.builtinOnly"))));
+  if (data.note) wrap.append(el("div","warn", data.note));
+  // Two columns: LEFT = the rules the user wrote (semantic input), RIGHT = the compiled verdict.
+  const split = el("div","hl-split");
+  split.append(el("div","col-h", t("compile.colInput")), el("div","col-h", t("compile.colOutput")));
+  (data.rules || []).forEach(rule => {
+    const left = el("div","hl-cin");
+    left.append(el("span","cid","L"+rule.layer + (rule.id ? " "+rule.id : "")),
+      document.createTextNode(" " + rule.text));
+    const right = el("div","hl-cout");
+    const top = el("div","top"); top.append(compileTag(rule));
+    if (rule.builtin_detector) top.append(el("span","hl-help", t("compile.builtin") + rule.builtin_detector));
+    right.append(top);
+    if (rule.reason) right.append(el("div","hl-help", rule.reason));
+    const p = rule.proposed;
+    if (p && p.regex) {
+      const rx = el("div");
+      rx.append(el("span","hl-regex", p.regex),
+        p.verified ? el("span","hl-tag det", t("compile.verifyOk"))
+                   : el("span","hl-tag adv", t("compile.verifyFail")));
+      if (p.verify_detail) rx.append(el("span","hl-help"," " + p.verify_detail));
+      right.append(rx);
+    }
+    split.append(left, right);
+  });
+  wrap.append(split, compileActions());
+}
+
+// Export bar — download the compiled result as YAML, and import it into a project's committed
+// .harness-lens/policy.yaml (so the compiled harness is git-distributed / PR-reviewed).
+function compileActions() {
+  const bar = el("div","hl-cbar");
+  const dl = el("button","hl-save", t("compile.exportYaml")); dl.onclick = () => exportCompiled();
+  bar.append(dl);
+  const projs = hpProjects();
+  let target;
+  if (projs.length) {
+    const sel = el("select"); sel.id = "hl-importTarget";
+    projs.forEach(cwd => { const o = el("option",null, baseName(cwd) || cwd); o.value = cwd; sel.append(o); });
+    if (_hpProject !== "__global__") sel.value = _hpProject;
+    target = () => sel.value;
+    bar.append(el("span","hl-help", t("compile.toProject")), sel);
+  } else {
+    const inp = el("input","t"); inp.placeholder = t("compile.pathPlaceholder"); inp.style.minWidth = "16rem";
+    target = () => inp.value;
+    bar.append(el("span","hl-help", t("compile.toPath")), inp);
+  }
+  const imp = el("button","hl-compile", t("compile.import"));
+  imp.title = t("compile.importTip");
+  imp.onclick = () => importCompiled((target() || "").trim(), imp);
+  const msg = el("span","hl-help"); msg.id = "hl-importMsg";
+  bar.append(imp, msg);
+  return bar;
+}
+function exportCompiled() {
+  const y = _compileReport && _compileReport.yaml; if (!y) return;
+  const name = (_compileReport.policy && _compileReport.policy.name) || "compiled-harness";
+  const blob = new Blob([y], { type: "text/yaml" });
+  const a = el("a"); a.href = URL.createObjectURL(blob); a.download = name + ".policy.yaml";
+  document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+}
+async function importCompiled(cwd, btn) {
+  const msg = $("#hl-importMsg");
+  const set = (t, cls) => { if (msg) { msg.textContent = t; msg.className = cls; } };
+  if (!cwd) { set(t("compile.needPath"), "warn"); return; }
+  if (!_compileReport || !_compileReport.policy) return;
+  if (btn) btn.disabled = true; set(t("compile.writing"), "hl-help");
+  try {
+    const r = await api("/api/harness/apply", { method:"POST",
+      body: JSON.stringify({ cwd: cwd, policy: _compileReport.policy, target: "repo" }) });
+    const d = await r.json().catch(()=>({}));
+    set(r.ok ? (t("compile.savedTo") + (d.path || cwd)) : (t("common.failPrefix") + (d.detail || r.status)), r.ok ? "ok" : "warn");
+  } catch (e) { set(t("common.errorPrefix") + e, "warn"); }
+  finally { if (btn) btn.disabled = false; }
+}
+function layerBox(id, title, help) {
+  const b = el("div","hl-layer"); b.id = id;
+  const h = el("div","hl-lhead");
+  const m = /l([123])(?:$|-)/i.exec(id);
+  if (/mode/i.test(id)) h.append(el("span","hl-lbadge mode","MODE"));
+  else if (m) h.append(el("span","hl-lbadge l"+m[1], "L"+m[1]));
+  h.append(el("span","hl-ltitle", title));
+  b.append(h);
+  if (help) b.append(el("div","hl-help", help));
+  return b;
+}
 function actions(...btns){ const a = el("div","hl-actions"); a.append(...btns); return a; }
-function delBtn(onDel){ const d = el("button","hl-del","삭제"); d.onclick = onDel; return d; }
+function delBtn(onDel){ const d = el("button","hl-del", t("common.delete")); d.onclick = onDel; return d; }
 // The 3-Layer editor is project-first: pick a project (or 전역 기본) and edit the harness that
 // applies to it in one place. A project's harness = the global base + that folder's own additions.
 function scopeForCwd(cwd) { return _scopes.find(s => s.match && s.match.cwd === cwd) || null; }
@@ -1283,71 +1899,84 @@ function hpProjects() {
     .forEach(f => { if (!seen.has(f.cwd)) { seen.add(f.cwd); out.push(f.cwd); } });
   return out;
 }
-function projectPicker() {
-  const wrap = el("div","hp-picker");
-  wrap.append(el("span","muted","프로젝트:"));
-  const mk = (key, label, title) => {
-    const b = el("button","hp-proj"+(_hpProject===key?" cur":""), label);
-    if (title) b.title = title;
-    b.onclick = () => { _hpProject = key; _l1open = false; $("#harnessMsg").textContent=""; renderHarness(); };
-    return b;
-  };
-  wrap.append(mk("__global__","🌐 전역 기본","모든 프로젝트 공통"));
-  hpProjects().forEach(cwd => wrap.append(mk(cwd, baseName(cwd) || cwd, cwd)));
-  return wrap;
+// A target row in the left rail (global base, or one project).
+function railItem(key, label, title, icon){
+  const b = el("div","hl-tgt" + (_hpProject===key ? " cur" : ""));
+  b.append(ico(icon||"folder"), el("span","nm", label));
+  if (title) b.title = title;
+  b.onclick = () => { _hpProject = key; _l1open = false; $("#harnessMsg").textContent = ""; renderHarness(); };
+  return b;
 }
 
+// Two-pane settings layout: a target rail on the left, the selected harness's editor on the right.
 function renderHarness() {
   const body = $("#harnessBody"); body.replaceChildren();
-  body.append(projectPicker());
-  if (_hpProject === "__global__") renderGlobalEditor(body);
-  else renderProjectEditor(body, _hpProject);
+  $("#harnessTitle").textContent = t("harness.title");
+  $("#harnessBadge").textContent = t("harness.badge");
+  const rail = el("div","hl-rail");
+  rail.append(el("div","hl-railhead", t("harness.projects")));
+  rail.append(railItem("__global__", t("harness.globalBase"), t("harness.globalBaseTip"), "globe"));
+  hpProjects().forEach(cwd => rail.append(railItem(cwd, baseName(cwd) || cwd, cwd, "folder")));
+  const content = el("div","hl-content");
+  if (_hpProject === "__global__") renderGlobalEditor(content);
+  else renderProjectEditor(content, _hpProject);
+  body.append(rail, content);
 }
 
 // ---- 전역 기본 (base) editor — applies to every project ----
 function renderGlobalEditor(body) {
-  body.append(el("div","hl-help","🌐 전역 기본 — 모든 프로젝트에 공통으로 적용되는 3-Layer 입니다."));
+  body.append(el("div","hl-help", t("harness.globalIntro")));
+  // Top control bar: the rule compiler (classify → export YAML / import into a project's policy.yaml).
+  const ctl = el("div","hl-controls");
+  const cbtn = el("button","hl-compile", t("compile.btn")); cbtn.title = t("compile.btnTip");
+  cbtn.onclick = () => runCompile(cbtn);
+  ctl.append(cbtn, el("span","hl-help", t("compile.hookNote")));
+  body.append(ctl);
+  const cwrap = el("div","hl-cwrap"); cwrap.id = "hl-compileWrap"; body.append(cwrap);
+  // The three Layer editors — the main content, grouped at the bottom.
+  body.append(el("div","hl-secthead", t("harness.layersSection")));
   // Layer 1 — invariants (unlock-gated)
-  const b1 = layerBox("hl-l1","Layer 1 — 절대 규칙 (안전·위반 금지)","어떤 경우에도 어기면 안 되는 규칙. AHE 자동진화는 절대 못 바꿉니다.");
-  const lock = el("button","hl-lock", _l1open ? "🔓 편집 중 — 잠그기" : "🔒 잠금 — 클릭해 편집");
+  const b1 = layerBox("hl-l1", t("layer1.full"), t("harness.l1Help"));
+  const lock = el("button","hl-lock");
+  lock.append(ico(_l1open ? "unlock" : "lock"), document.createTextNode(" " + t(_l1open ? "harness.l1Unlocked" : "harness.l1Locked")));
   lock.onclick = () => { if (_l1open) _crit.invariants = collectL1(); _l1open = !_l1open; renderHarness(); };
-  b1.querySelector("h3").append(lock);
+  b1.querySelector(".hl-lhead").append(lock);
   if (!_l1open) {
-    (_crit.invariants.length ? _crit.invariants : ["(없음)"]).forEach(r => b1.append(el("div",null,"• "+r)));
+    (_crit.invariants.length ? _crit.invariants : [t("common.none")]).forEach(r => b1.append(el("div",null,"• "+r)));
   } else {
-    b1.append(el("div","warn","⚠ 안전 규칙입니다. 저장 시 criteria.yaml 백업 후 즉시 반영됩니다."));
+    const warn = el("div","warn"); warn.append(ico("alert"), document.createTextNode(" " + t("harness.l1Warn"))); b1.append(warn);
     _crit.invariants.forEach(r => {
-      const it = el("div","hl-item"); const i = el("input","t"); i.type="text"; i.value=r; i.placeholder="규칙 내용";
+      const it = el("div","hl-item"); const i = el("input","t"); i.type="text"; i.value=r; i.placeholder=t("harness.rulePlaceholder");
       it.append(i, delBtn(() => { const v=collectL1(); v.splice([...b1.querySelectorAll('.hl-item')].indexOf(it),1); _crit.invariants=v; renderHarness(); }));
       b1.append(it);
     });
-    const add = el("button",null,"+ 규칙 추가"); add.onclick = () => { _crit.invariants=collectL1(); _crit.invariants.push(""); renderHarness(); };
-    const save = el("button","hl-save","저장"); save.onclick = () => saveLayer("layer1", { invariants: collectL1() });
+    const add = el("button",null,t("harness.addRule")); add.onclick = () => { _crit.invariants=collectL1(); _crit.invariants.push(""); renderHarness(); };
+    const save = el("button","hl-save",t("common.save")); save.onclick = () => saveLayer("layer1", { invariants: collectL1() });
     b1.append(actions(add, save));
   }
   body.append(b1);
   // Layer 2 — domain criteria
-  const b2 = layerBox("hl-l2","Layer 2 — 행동 기준 (매 단계 품질 심사)","LLM 심사관이 매 단계 점수를 매기는 기준. weight = 중요도.");
+  const b2 = layerBox("hl-l2", t("layer2.full"), t("harness.l2Help"));
   _crit.domain_criteria.forEach(dc => {
     const it = el("div","hl-item"); it.dataset.id = dc.id || "";
     it.append(el("span","cid", dc.id || "(new)"));
-    const i = el("input","t"); i.type="text"; i.value=dc.description||""; i.placeholder="기준 설명";
+    const i = el("input","t"); i.type="text"; i.value=dc.description||""; i.placeholder=t("harness.criterionPlaceholder");
     const w = el("input","w"); w.type="number"; w.step="any"; w.min="0"; w.title="weight"; w.value = dc.weight!=null?dc.weight:1;
     it.append(i, w, delBtn(() => { const v=collectL2(); v.splice([...b2.querySelectorAll('.hl-item')].indexOf(it),1); _crit.domain_criteria=v; renderHarness(); }));
     b2.append(it);
   });
-  const add2 = el("button",null,"+ 기준 추가"); add2.onclick = () => { _crit.domain_criteria=collectL2(); _crit.domain_criteria.push({id:"",description:"",weight:1}); renderHarness(); };
-  const save2 = el("button","hl-save","저장"); save2.onclick = () => saveLayer("layer2", { domain_criteria: collectL2() });
+  const add2 = el("button",null,t("harness.addCriterion")); add2.onclick = () => { _crit.domain_criteria=collectL2(); _crit.domain_criteria.push({id:"",description:"",weight:1}); renderHarness(); };
+  const save2 = el("button","hl-save",t("common.save")); save2.onclick = () => saveLayer("layer2", { domain_criteria: collectL2() });
   b2.append(actions(add2, save2));
   body.append(b2);
   // Layer 3 — QA thresholds (the only AHE-evolvable layer)
-  const b3 = layerBox("hl-l3","Layer 3 — 품질 한계선 (자동 임계값)","넘으면 경보/자동진화. AHE가 자동으로 조정하는 유일한 층.");
+  const b3 = layerBox("hl-l3", t("layer3.full"), t("harness.l3Help"));
   Object.entries(_crit.layer3).forEach(([k,v]) => {
     const it = el("div","hl-item"); it.append(el("span","cid",k));
     const i = el("input","w"); i.type="number"; i.step="any"; i.dataset.k=k; i.value=v;
-    it.append(i, el("span","hl-help", L3HELP[k]||"")); b3.append(it);
+    it.append(i, el("span","hl-help", t("l3help."+k))); b3.append(it);
   });
-  const save3 = el("button","hl-save","저장"); save3.onclick = () => saveLayer("layer3", { layer3: collectL3() });
+  const save3 = el("button","hl-save",t("common.save")); save3.onclick = () => saveLayer("layer3", { layer3: collectL3() });
   b3.append(actions(save3));
   body.append(b3);
 }
@@ -1356,46 +1985,56 @@ function renderGlobalEditor(body) {
 function renderProjectEditor(body, cwd) {
   const scope = scopeForCwd(cwd) || {};
   const label = baseName(cwd) || cwd;
-  body.append(el("div","hl-help","📁 "+label+" — 전역 기본은 그대로 적용되고, 여기서는 이 폴더에만 더할 규칙·한계선을 정합니다. (정확한 폴더 경로로 매칭: "+cwd+")"));
+  const intro = el("div","hl-help"); intro.append(ico("folder"), document.createTextNode(" " + t("harness.projIntro", label)));
+  body.append(intro);
+  body.append(el("div","hl-help muted", t("harness.projMatch", cwd)));
 
-  // Mode
-  const mb = layerBox("hp-mode-box","실행 모드","이 폴더 세션만 observe/enforce 로 고정합니다. 비우면 전역 모드를 따릅니다.");
-  const mrow = el("div","hl-item"); mrow.append(el("span","cid","mode"));
-  const md = el("select"); md.id = "hp-mode";
-  [["","전역 모드 상속"],["observe","observe (관측만)"],["enforce","enforce (차단/승인)"]].forEach(([v,l])=>{
+  // Top control bar: run mode + rule compiler, compact so the Layer editors below are the focus.
+  const ctl = el("div","hl-controls");
+  const modeCtl = el("span","ctl"); modeCtl.append(el("label",null, t("harness.modeTitle")));
+  const md = el("select"); md.id = "hp-mode"; md.title = t("harness.modeHelp");
+  [["",t("harness.modeInherit")],["observe",t("harness.modeObserve")],["enforce",t("harness.modeEnforce")]].forEach(([v,l])=>{
     const o = el("option",null,l); o.value=v; md.append(o); });
   md.value = scope.mode || "";
-  mrow.append(md); mb.append(mrow); body.append(mb);
+  modeCtl.append(md);
+  const cbtn = el("button","hl-compile", t("compile.btn")); cbtn.title = t("compile.btnTip");
+  cbtn.onclick = () => runCompile(cbtn);
+  ctl.append(modeCtl, el("span","sep"), cbtn);
+  body.append(ctl);
+  body.append(el("div","hl-help", t("compile.hookNote")));
+  const cwrap = el("div","hl-cwrap"); cwrap.id = "hl-compileWrap"; body.append(cwrap);
+  // The three Layer editors — the main content, grouped at the bottom.
+  body.append(el("div","hl-secthead", t("harness.layersSection")));
 
   // Layer 1
-  const b1 = layerBox("hp-l1","Layer 1 — 절대 규칙 (안전·위반 금지)","전역 규칙은 그대로 적용됩니다. 이 폴더 전용 규칙만 여기서 더하세요.");
-  (_crit.invariants||[]).forEach(t => { const d=el("div","hl-item muted"); d.append(el("span",null,"• "+t), el("span","cid","전역")); b1.append(d); });
-  (scope.add_invariants||[]).forEach(t => addProjInvRow(b1, t));
-  const add1 = el("button",null,"+ 이 폴더 규칙"); add1.onclick = () => addProjInvRow(b1, "");
+  const b1 = layerBox("hp-l1", t("layer1.full"), t("harness.l1ProjHelp"));
+  (_crit.invariants||[]).forEach(inv => { const d=el("div","hl-item muted"); d.append(el("span",null,"• "+inv), el("span","cid",t("harness.globalTag"))); b1.append(d); });
+  (scope.add_invariants||[]).forEach(inv => addProjInvRow(b1, inv));
+  const add1 = el("button",null,t("harness.addFolderRule")); add1.onclick = () => addProjInvRow(b1, "");
   b1.append(actions(add1)); body.append(b1);
 
   // Layer 2
-  const b2 = layerBox("hp-l2","Layer 2 — 행동 기준 (매 단계 품질 심사)","전역 기준 위에 이 폴더 전용 기준을 더합니다.");
+  const b2 = layerBox("hp-l2", t("layer2.full"), t("harness.l2ProjHelp"));
   (_crit.domain_criteria||[]).forEach(dc => { const d=el("div","hl-item muted");
-    d.append(el("span","cid","전역"), el("span",null,dc.description||""), el("span","cid","w"+(dc.weight!=null?dc.weight:1))); b2.append(d); });
+    d.append(el("span","cid",t("harness.globalTag")), el("span",null,dc.description||""), el("span","cid","w"+(dc.weight!=null?dc.weight:1))); b2.append(d); });
   (scope.add_domain_criteria||[]).forEach(dc => addProjDcRow(b2, dc));
-  const add2 = el("button",null,"+ 이 폴더 기준"); add2.onclick = () => addProjDcRow(b2, {});
+  const add2 = el("button",null,t("harness.addFolderCriterion")); add2.onclick = () => addProjDcRow(b2, {});
   b2.append(actions(add2)); body.append(b2);
 
   // Layer 3 — override (blank = inherit the global value)
-  const b3 = layerBox("hp-l3","Layer 3 — 품질 한계선 (자동 임계값)","비우면 전역 값을 그대로 씁니다. 값을 넣으면 이 폴더만 그 값으로 덮어씁니다.");
+  const b3 = layerBox("hp-l3", t("layer3.full"), t("harness.l3ProjHelp"));
   L3KEYS.forEach(([k,lab]) => {
     const it = el("div","hl-item"); it.append(el("span","cid",lab));
     const i = el("input","w"); i.type="number"; i.step="any"; i.dataset.k=k; i.id="hpL3-"+k;
     const base = (_crit.layer3||{})[k];
     if (scope.layer3 && scope.layer3[k]!=null) i.value = scope.layer3[k];
-    i.placeholder = base!=null ? ("전역 "+base) : "";
-    it.append(i, el("span","hl-help",(L3HELP[k]||"") + (base!=null?(" · 전역 "+base):"")));
+    i.placeholder = base!=null ? (t("prov.glob")+" "+base) : "";
+    it.append(i, el("span","hl-help", t("l3help."+k) + (base!=null?(" · "+t("prov.glob")+" "+base):"")));
     b3.append(it);
   });
   body.append(b3);
 
-  const save = el("button","hl-save","이 프로젝트 저장"); save.onclick = () => saveProject(cwd);
+  const save = el("button","hl-save",t("harness.saveProject")); save.onclick = () => saveProject(cwd);
   body.append(actions(save));
 }
 function addProjInvRow(box, text) {
@@ -1426,11 +2065,11 @@ async function saveProject(cwd) {
     add_invariants: collectProjInv(), add_domain_criteria: collectProjDc(), layer3: collectProjL3() };
   const mode = $("#hp-mode").value; if (mode) scope.mode = mode;
   const others = _scopes.filter(s => !(s.match && s.match.cwd === cwd));  // replace this folder's scope, keep the rest
-  const m = $("#harnessMsg"); m.textContent="저장 중…"; m.className="muted";
+  const m = $("#harnessMsg"); m.textContent=t("common.saving"); m.className="muted";
   const r = await api("/api/scopes", { method:"POST", body: JSON.stringify({ scopes: [...others, scope] }) });
   if (r.ok) { _scopes = (await r.json()).scopes || []; renderHarness(); loadSnapshot();
-    m.textContent="저장됨 · "+(baseName(cwd)||cwd)+" 의 다음 단계부터 적용"; m.className="ok"; }
-  else { const d=await r.json().catch(()=>({})); m.textContent="저장 실패: "+(d.detail||r.status); m.className="warn"; }
+    m.textContent=t("harness.savedProject", baseName(cwd)||cwd); m.className="ok"; }
+  else { const d=await r.json().catch(()=>({})); m.textContent=t("harness.saveFail")+(d.detail||r.status); m.className="warn"; }
 }
 async function refreshHarnessModal(crit=null) {
   const [freshCrit, scopes] = await Promise.all([
@@ -1448,12 +2087,11 @@ async function openHarness(project) {
   $("#harnessModal").style.display = "flex";
 }
 $("#harness").onclick = () => openHarness("__global__");
-// "프로젝트 하네스" header button jumps straight to the most recent project in the same editor.
-$("#scopes").onclick = () => openHarness(hpProjects()[0] || "__global__");
 $("#harnessClose").onclick = () => { $("#harnessModal").style.display = "none"; };
 $("#harnessModal").onclick = e => { if (e.target.id === "harnessModal") $("#harnessModal").style.display = "none"; };
 
-renderConn(); loadSnapshot().then(connect);
+$("#lang").onclick = () => { LANG = (LANG === "ko" ? "en" : "ko"); try { localStorage.setItem("hl-lang", LANG); } catch(_){}; applyLang(); };
+initLayout(); applyLang(); loadSnapshot().then(connect);
 </script>
 </body>
 </html>

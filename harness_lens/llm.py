@@ -27,7 +27,7 @@ class LLMClient(Protocol):
 # The default model is overridable via ``HARNESS_LENS_MODEL`` so a deployment can pin
 # whatever model id its installed Anthropic SDK / account actually exposes, without a
 # code change. ``_default_model()`` resolves the env override at call time.
-DEFAULT_MODEL = "claude-opus-4-7"
+DEFAULT_MODEL = "claude-opus-4-8"
 
 
 def _default_model() -> str:

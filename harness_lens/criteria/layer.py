@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -82,10 +83,56 @@ class CriteriaGuard:
 
 
 @dataclass
+class GeneratedDetector:
+    """A compiler-synthesised, self-verified regex detector promoted to gate at hook time.
+
+    Only *verified* detectors with a compilable regex are built (see :func:`parse_detectors`), so the
+    policy engine never trusts a regex that did not pass its own examples. Generated detectors
+    *escalate* (never hard-deny): an auto-synthesised rule firing pauses for a human via the approval
+    queue rather than blocking outright, since it is less trustworthy than a hand-written invariant.
+    """
+
+    layer: int
+    rule: str  # the human rule this detector implements (shown in the escalation reason)
+    regex: str
+    pattern: "re.Pattern"
+
+    def match(self, text: str) -> bool:
+        return bool(self.pattern.search(text or ""))
+
+
+def parse_detectors(raw) -> list["GeneratedDetector"]:
+    """Build :class:`GeneratedDetector`s from a ``detectors:`` list — verified + compilable only.
+
+    An unverified entry, a missing/non-string regex, or a regex that fails to compile is dropped (not
+    fatal), so importing a policy can never promote an unchecked or broken detector into the gate.
+    """
+    out: list[GeneratedDetector] = []
+    for item in raw or []:
+        if not isinstance(item, dict) or not item.get("verified"):
+            continue
+        regex = item.get("regex")
+        if not isinstance(regex, str) or not regex.strip():
+            continue
+        try:
+            pattern = re.compile(regex, re.I)
+        except re.error:
+            continue
+        try:
+            layer = int(item.get("layer", 2))
+        except (TypeError, ValueError):
+            layer = 2
+        out.append(GeneratedDetector(layer=layer, rule=str(item.get("rule") or ""),
+                                     regex=regex, pattern=pattern))
+    return out
+
+
+@dataclass
 class ThreeLayerCriteria:
     invariants: list[str]
     domain_criteria: list[DomainCriterion]
     qa: QACriteria
+    generated_detectors: list = field(default_factory=list)  # compiler-promoted regex gates (escalate)
     guard: CriteriaGuard = field(init=False)
 
     def __post_init__(self) -> None:
@@ -97,7 +144,9 @@ class ThreeLayerCriteria:
         invariants = [str(x) for x in data.get("invariants", [])]
         domain = [DomainCriterion.from_dict(d) for d in data.get("domain_criteria", [])]
         qa = QACriteria(QAConfig.from_dict(data.get("layer3", {})))
-        return cls(invariants=invariants, domain_criteria=domain, qa=qa)
+        detectors = parse_detectors(data.get("detectors") or [])
+        return cls(invariants=invariants, domain_criteria=domain, qa=qa,
+                   generated_detectors=detectors)
 
     def invariant_checker(self) -> InvariantChecker:
         return InvariantChecker(self.invariants)

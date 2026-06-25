@@ -89,6 +89,8 @@ def load_repo_policy(policy_path: Path) -> Optional[Scope]:
         "add_domain_criteria": data.get("domain_criteria") or [],
         "layer3": data.get("layer3") if isinstance(data.get("layer3"), dict) else {},
     }
+    if isinstance(data.get("detectors"), list):
+        raw["detectors"] = data["detectors"]  # compiler-promoted gates (verified-only; parsed downstream)
     mode = data.get("mode")
     if mode in ("observe", "enforce"):
         raw["mode"] = mode

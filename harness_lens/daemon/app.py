@@ -13,6 +13,8 @@ Endpoints (all loopback-only, token-authenticated):
 * ``GET  /api/criteria``           — the base 3-Layer harness (invariants / criteria / thresholds).
 * ``GET  /api/criteria/effective`` — the project/session-scoped harness after scope resolution.
 * ``POST /api/criteria/{layer}``   — human owner edit of layer1 / layer2 / layer3, then hot-reload.
+* ``POST /api/criteria/compile``   — classify L1/L2 rules into deterministic detectors vs semantic
+                                     (advisory); may call the host LLM (off-loop). Read-only preview.
 
 The token gate (``X-HL-Token`` or ``Authorization: Bearer``) plus loopback binding keep
 other local users off the control plane. The GUI/WebSocket surface is Phase 2; the REST
@@ -29,6 +31,7 @@ from typing import Optional
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from .. import __version__
 from .approvals import APPROVED, DENIED
 from .config import MODES
 from .runtime import DaemonRuntime
@@ -53,7 +56,7 @@ def create_app(runtime: Optional[DaemonRuntime] = None, root: Optional[Path] = N
         finally:
             await runtime.stop()
 
-    app = FastAPI(title="harness-lens daemon", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="harness-lens daemon", version=__version__, lifespan=lifespan)
     app.state.runtime = runtime
 
     async def auth(
@@ -101,6 +104,45 @@ def create_app(runtime: Optional[DaemonRuntime] = None, root: Optional[Path] = N
             raise HTTPException(status_code=400, detail="scopes must be a list")
         return {"scopes": runtime.save_scopes(scopes)}
 
+    @app.get("/api/harness/export")
+    async def export_harness(cwd: Optional[str] = None, session_id: Optional[str] = None,
+                             kind: str = "effective", format: str = "yaml",
+                             _=Depends(auth)) -> dict:
+        """A project's harness as a portable file (yaml|json) — pull it out to reuse/swap elsewhere."""
+        import json as _json
+
+        import yaml as _yaml
+        policy = runtime.export_harness(cwd=cwd, session_id=session_id, kind=kind)
+        if format == "json":
+            content = _json.dumps(policy, ensure_ascii=False, indent=2)
+        else:
+            content = _yaml.safe_dump(policy, allow_unicode=True, sort_keys=False)
+        base = (cwd or "harness").rstrip("/").split("/")[-1] or "harness"
+        return {"filename": f"{base}.harness.{format}", "format": format,
+                "content": content, "policy": policy}
+
+    @app.post("/api/harness/apply")
+    async def apply_harness(body: dict, _=Depends(auth)) -> dict:
+        """Swap a harness into a project: write its committed .harness-lens/policy.yaml (target=repo)
+        or install it as a personal exact-cwd scope (target=scope). Accepts a parsed ``policy`` dict
+        or raw ``content`` text (yaml or json — yaml.safe_load reads both)."""
+        import yaml as _yaml
+        cwd = str(body.get("cwd", "")).strip()
+        if not cwd:
+            raise HTTPException(status_code=400, detail="cwd required")
+        policy = body.get("policy")
+        if policy is None and body.get("content") is not None:
+            try:
+                policy = _yaml.safe_load(body["content"])
+            except _yaml.YAMLError as exc:
+                raise HTTPException(status_code=400, detail=f"could not parse content: {exc}")
+        if not isinstance(policy, dict):
+            raise HTTPException(status_code=400, detail="a 'policy' object or 'content' text is required")
+        try:
+            return runtime.apply_harness(cwd, policy, target=str(body.get("target", "repo")))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
     @app.post("/api/projects/mode")
     async def set_project_mode(body: dict, _=Depends(auth)) -> dict:
         """Pin observe/enforce for one project folder (exact-cwd scope), or clear it ('global')."""
@@ -124,6 +166,25 @@ def create_app(runtime: Optional[DaemonRuntime] = None, root: Optional[Path] = N
         _=Depends(auth),
     ) -> dict:
         return runtime.effective_criteria_payload(cwd=cwd, session_id=session_id, flow_id=flow_id)
+
+    # NB: declare the static /compile route BEFORE the dynamic /{layer} route — Starlette matches in
+    # definition order, so a /{layer} declared first would swallow "compile" as layer="compile".
+    @app.post("/api/criteria/compile")
+    async def compile_criteria(body: Optional[dict] = None, _=Depends(auth)) -> dict:
+        """Classify L1/L2 rules into deterministic detectors vs semantic (advisory).
+
+        Authoring-time helper that MAY call the host LLM (``claude -p`` / ``codex exec``). It is
+        offloaded to a worker thread so the (possibly multi-second) LLM call never stalls the event
+        loop that also serves the synchronous hook gate. Body is optional ``{invariants?,
+        domain_criteria?}`` — omitted layers default to the current base harness. Read-only preview.
+        """
+        import asyncio
+
+        body = body if isinstance(body, dict) else {}
+        inv = body.get("invariants")
+        dcs = body.get("domain_criteria")
+        name = body.get("name")
+        return await asyncio.to_thread(runtime.compile_criteria, inv, dcs, name)
 
     @app.post("/api/criteria/{layer}")
     async def edit_criteria(layer: str, body: dict, _=Depends(auth)) -> dict:

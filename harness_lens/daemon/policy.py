@@ -135,6 +135,9 @@ class PolicyEngine:
         self.criteria = criteria
         self.invariant = criteria.invariant_checker()
         self.completion_criteria = _load_completion_criteria(criteria_path)
+        # Compiler-synthesised, verified regex detectors promoted to gate (escalate). Empty unless a
+        # policy carries a `detectors:` section, so existing harnesses are unaffected.
+        self.generated = list(getattr(criteria, "generated_detectors", []) or [])
 
     # -- PreToolUse ------------------------------------------------------ #
     def evaluate_pre_tool(
@@ -159,6 +162,14 @@ class PolicyEngine:
             if suspicion is not None:
                 cid, reason = suspicion
                 return Decision.escalate(layer=2, reason=reason, criterion_id=cid)
+
+            # Generated detectors — compiler-synthesised, verified regexes promoted to gate. They
+            # ESCALATE (never hard-deny), since an auto-synthesised regex is less trustworthy than a
+            # hand-written invariant; a human resolves the escalation.
+            gen = self._generated_suspect(event)
+            if gen is not None:
+                layer, cid, reason = gen
+                return Decision.escalate(layer=layer, reason=reason, criterion_id=cid)
 
             # L3 — circuit breaker: once the flow has breached an L3 limit (too many failures /
             # retries), pause further actions for human review. (L3 still does NOT inspect the
@@ -209,6 +220,24 @@ class PolicyEngine:
                             label = label[:79] + "…"
                         return (dc.id, f"[{dc.id}] {label} — {reason}")
                     break  # this criterion matched a detector but did not fire — move to next criterion
+        return None
+
+    def _generated_suspect(self, event: HarnessEvent) -> Optional[tuple[int, str, str]]:
+        """Run compiler-promoted (verified) generated detectors against the step text.
+
+        Returns ``(layer, criterion_id, reason)`` on the first match, else None. These only exist when
+        a policy carries a ``detectors:`` section, so most flows skip this entirely. A match escalates.
+        """
+        if not self.generated:
+            return None
+        text = event.tool_text()
+        for det in self.generated:
+            if det.match(text):
+                label = (det.rule or "generated").strip()
+                if len(label) > 80:
+                    label = label[:79] + "…"
+                return (det.layer, f"GEN-L{det.layer}",
+                        f'[생성 detector] "{label}" 규칙 패턴 매칭 — 검토 필요')
         return None
 
     # -- Stop / SubagentStop --------------------------------------------- #

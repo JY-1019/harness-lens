@@ -23,9 +23,22 @@ so existing observe-only installs are untouched until a user opts in.
 
 from __future__ import annotations
 
-# Network surface. Loopback only — never bind a routable interface (design constraint).
+import os
+
+# Network surface. Loopback only — never bind a routable interface (design constraint). The port is
+# overridable (``HARNESS_LENS_DAEMON_PORT``) for the rare :7700 conflict; the host stays loopback-only.
 DAEMON_HOST = "127.0.0.1"
-DAEMON_PORT = 7700
+
+
+def _resolve_port() -> int:
+    raw = os.environ.get("HARNESS_LENS_DAEMON_PORT", "").strip()
+    try:
+        return int(raw) if raw else 7700
+    except ValueError:
+        return 7700
+
+
+DAEMON_PORT = _resolve_port()
 
 
 def daemon_base_url() -> str:
