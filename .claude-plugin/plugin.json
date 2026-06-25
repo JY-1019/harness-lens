@@ -1,0 +1,10 @@
+{
+  "name": "harness-lens",
+  "description": "Observe and evolve the agentic harness — a 3-Layer (invariants / domain criteria / QA thresholds) control plane that gates and records every tool call, with a live web UI at http://127.0.0.1:7700/ui.",
+  "version": "0.1.0",
+  "author": { "name": "JY-1019", "url": "https://github.com/JY-1019" },
+  "homepage": "https://github.com/JY-1019/harness-lens",
+  "repository": "https://github.com/JY-1019/harness-lens",
+  "license": "MIT",
+  "keywords": ["harness", "governance", "hooks", "observability", "3-layer", "mcp"]
+}

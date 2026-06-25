@@ -1,0 +1,10 @@
+{
+  "name": "harness-lens",
+  "version": "0.1.0",
+  "description": "3-Layer harness control plane (hooks + MCP + live web UI) for Codex CLI. Gates and records every tool call against Layer 1 invariants / Layer 2 domain criteria / Layer 3 QA thresholds; a SessionStart hook auto-starts a local daemon that holds the ledger and serves the UI at http://127.0.0.1:7700/ui.",
+  "author": { "name": "JY-1019", "url": "https://github.com/JY-1019" },
+  "repository": "https://github.com/JY-1019/harness-lens",
+  "homepage": "https://github.com/JY-1019/harness-lens",
+  "license": "MIT",
+  "keywords": ["harness", "governance", "hooks", "observability", "3-layer", "mcp"]
+}

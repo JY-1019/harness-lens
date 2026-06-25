@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# harness-lens plugin launcher.
+#
+# Runs the vendored Python package from the plugin's own bundled project via uv, so the
+# plugin works offline and is pinned to the committed source — no global `harness-lens`
+# install and no per-call network fetch required. ${CLAUDE_PLUGIN_ROOT} (Claude Code) or
+# ${CODEX_PLUGIN_ROOT} (Codex) points at the installed plugin directory, which contains
+# pyproject.toml + the harness_lens package; when run directly (dev), we derive it from
+# this script's location.
+set -euo pipefail
+ROOT="${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}}"
+
+# `relay` is a platform-agnostic alias for `hook-relay <source>` — the host that calls us
+# tells us which it is (Codex sets CODEX_PLUGIN_ROOT / HARNESS_LENS_PLATFORM=codex), so a
+# single hooks config can serve both Claude Code and Codex.
+if [ "${1:-}" = "relay" ]; then
+  shift
+  if [ -n "${CODEX_PLUGIN_ROOT:-}" ] || [ "${HARNESS_LENS_PLATFORM:-}" = "codex" ]; then
+    set -- hook-relay codex "$@"
+  else
+    set -- hook-relay claude_code "$@"
+  fi
+fi
+
+if command -v uv >/dev/null 2>&1; then
+  # uv creates/syncs a .venv inside the plugin on first run, then reuses it (fast, offline).
+  exec uv run --quiet --project "$ROOT" --extra all harness-lens "$@"
+fi
+
+# Fallback if uv is absent: a pre-synced venv, then a plain interpreter with the package on path.
+if [ -x "$ROOT/.venv/bin/harness-lens" ]; then
+  exec "$ROOT/.venv/bin/harness-lens" "$@"
+fi
+exec python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); from harness_lens.cli import main; sys.exit(main(sys.argv[2:]))' "$ROOT" "$@"

@@ -1,0 +1,11 @@
+{
+  "name": "harness-lens",
+  "owner": { "name": "JY-1019", "url": "https://github.com/JY-1019" },
+  "plugins": [
+    {
+      "name": "harness-lens",
+      "source": "./",
+      "description": "3-Layer harness control plane (hooks + MCP + live UI). Installs PreToolUse/PostToolUse/Stop hooks that gate & record every tool call, an MCP server, and a SessionStart hook that auto-starts the local daemon (web UI + ledger + approval queue)."
+    }
+  ]
+}

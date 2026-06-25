@@ -1,0 +1,39 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hl daemon start >/dev/null 2>&1 || true", "timeout": 25 },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hl hook-relay claude_code", "timeout": 10 }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hl hook-relay claude_code", "timeout": 15 } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": ".*", "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hl hook-relay claude_code", "timeout": 90 } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": ".*", "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hl hook-relay claude_code", "timeout": 15 } ] }
+    ],
+    "PostToolUseFailure": [
+      { "matcher": ".*", "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hl hook-relay claude_code", "timeout": 15 } ] }
+    ],
+    "SubagentStop": [
+      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hl hook-relay claude_code", "timeout": 90 } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hl hook-relay claude_code", "timeout": 90 } ] }
+    ],
+    "Notification": [
+      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hl hook-relay claude_code", "timeout": 10 } ] }
+    ],
+    "PreCompact": [
+      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hl hook-relay claude_code", "timeout": 10 } ] }
+    ],
+    "SessionEnd": [
+      { "hooks": [ { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hl hook-relay claude_code", "timeout": 15 } ] }
+    ]
+  }
+}

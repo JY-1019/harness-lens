@@ -45,8 +45,32 @@ status, and `status` summarises the layers currently in force.
 
 ## Install
 
-`harness-lens` is a Python package (3.10+). The hooks and MCP server run it via
-`uvx`, so no global install is required — `uvx` builds the env on demand.
+### As a plugin (recommended)
+
+harness-lens is packaged as a **Claude Code plugin** and a **Codex plugin** — the repo
+*is* the plugin (manifest at `.claude-plugin/plugin.json`, hooks at `hooks/hooks.json`, MCP
+at `.mcp.json`, launcher at `bin/hl`). Installing the plugin wires the hooks + MCP server
+and a `SessionStart` hook that auto-starts the local daemon (web UI + ledger + approval
+queue) — no `harness-lens install` step and no global settings to hand-edit.
+
+**Claude Code** (the repo doubles as its own marketplace):
+
+```text
+/plugin marketplace add JY-1019/harness-lens
+/plugin install harness-lens@harness-lens
+```
+
+The `bin/hl` launcher runs the bundled Python package via `uv`; a `.venv` is synced inside
+the plugin on first use (offline afterwards, pinned to the committed source).
+
+**Codex CLI:** see [`codex/SETUP.md`](codex/SETUP.md) — install the plugin
+(`.codex-plugin/plugin.json`), or apply the `~/.codex/config.toml` + `~/.codex/hooks.json`
+snippets there.
+
+### Alternative: CLI installer
+
+`harness-lens` is also a plain Python package (3.10+); the hooks and MCP server can be wired
+without the plugin via `uvx`, so no global install is required — `uvx` builds the env on demand.
 
 ```bash
 uvx --from "harness-lens[all]" harness-lens install
